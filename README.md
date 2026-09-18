@@ -2,21 +2,22 @@
 
 An AI-assisted assessment platform that evaluates student work against a mark scheme and provides structured feedback.
 
-**Current MVP:** real AI grading is intentionally disabled. Uploaded documents are validated and processed, but results are fixed, clearly labeled demo data. No OpenAI API key or paid API usage is needed.
+**Portfolio MVP:** real AI-assisted grading is available through the OpenAI API. The default `mock` mode returns clearly labeled demo data without credentials or paid API usage; `openai` mode requires backend credentials and incurs API usage.
 
 ## Overview
 
-Teachers need to compare student answers with grading criteria and explain why marks were awarded or lost. AI Checker brings uploads, structured feedback, and assessment history into one interface. This Computer Science portfolio project explores that workflow through a small, separated frontend and backend, with a prepared service for future AI grading.
+Teachers need to compare student answers with grading criteria and explain why marks were awarded or lost. AI Checker brings uploads, structured feedback, and assessment history into one interface. This Computer Science portfolio project implements that workflow through a small, separated frontend and backend. AI-generated marks should be reviewed by a teacher.
 
 ## Features
 
 - Upload student work and mark schemes as PDF, PNG, or JPG/JPEG, or paste manual criteria.
 - Validate file types, sizes, PDF readability, and image contents.
-- Extract selectable PDF text and flag sparse-text PDFs for future visual processing; no OCR yet.
+- Extract selectable PDF text and send supported images directly as multimodal inputs; no OCR yet.
 - Display structured results with decimal marks, calculated percentages, feedback, and evidence.
 - Save results in SQLite; browse, open, and delete assessment history.
 - View dashboard statistics and recent performance bars in a responsive React interface.
-- Use safe mock grading while retaining prepared OpenAI Structured Outputs and multimodal input support.
+- Grade against supplied mark schemes or criteria using OpenAI Structured Outputs, or use safe mock grading.
+- Display model and input/output/total token metadata from the grading response.
 
 Uploaded file contents and manual criteria text are not persisted. Only filenames, assessment metadata, and results are saved.
 
@@ -46,7 +47,7 @@ These screenshots show the portfolio MVP in `GRADING_MODE=mock`. Assessment scor
 | --- | --- |
 | Frontend | React, Vite, JavaScript, plain CSS |
 | Backend | Python, FastAPI, Pydantic, built-in SQLite, pypdf, Pillow |
-| Prepared AI service | Official OpenAI Python SDK, Structured Outputs, multimodal image/PDF inputs |
+| AI service | Official OpenAI Python SDK, Structured Outputs, image inputs and extracted PDF text |
 
 ## Architecture
 
@@ -66,7 +67,7 @@ Browser / React + Vite
         SQLite
 ```
 
-The assessment service prepares text or visual inputs and selects a grader by `GRADING_MODE`. Currently, only `mock` is enabled. Setting `openai` returns a configuration error; the separate AI service is not called by any endpoint. History and dashboard endpoints read saved SQLite records directly.
+The assessment service prepares text or image inputs and selects a grader by `GRADING_MODE`. `mock` returns fixed demo results; `openai` makes one structured grading request with automatic retries disabled. Only successfully validated assessments are saved. History and dashboard endpoints read saved SQLite records directly.
 
 ## Project Structure
 
@@ -81,7 +82,7 @@ ai-checker/
 │   ├── document_processing.py # PDF extraction and image validation
 │   ├── grading.py             # Result models and input preparation
 │   ├── assessment_service.py  # Mock grader and mode selection
-│   ├── ai_grading.py          # Disconnected OpenAI service
+│   ├── ai_grading.py          # OpenAI grading, usage metadata, and safe errors
 │   ├── database.py            # SQLite persistence
 │   ├── test_*.py              # Backend tests
 │   ├── .env.example
@@ -126,10 +127,10 @@ Backend `.env`:
 ```dotenv
 GRADING_MODE=mock
 OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4.1-mini
+OPENAI_MODEL=gpt-5.6-luna
 ```
 
-Mock mode needs no OpenAI credentials. The model setting is reserved for future grading; adding a key does not enable real grading. Environment variables override `.env` values.
+Mock mode needs no OpenAI credentials. To enable paid grading, set `GRADING_MODE=openai`, configure `OPENAI_API_KEY` privately in the backend environment, and choose `OPENAI_MODEL`. Credentials remain backend-only. Environment variables override `.env` values; restart the backend after configuration changes.
 
 Frontend `.env`:
 
@@ -157,15 +158,15 @@ cd frontend
 npm run build
 ```
 
-For a manual check, submit sample work with criteria, view the demo result, find it in History, and verify Dashboard updates after saving or deleting it.
+For a manual check in mock mode, submit sample work with criteria, view the demo result, find it in History, and verify Dashboard updates after saving or deleting it. In OpenAI mode, each submission uses the API; token metadata is available in the result's AI usage section.
 
 ## Current Status
 
-This is a portfolio MVP with mock grading enabled. The OpenAI infrastructure is prepared but intentionally disabled. Upload limits are 10 MB per file, 50 PDF pages, and 20 megapixels per image. Scanned PDFs are flagged rather than OCR-processed. With no authentication, all assessments share one local history; the app is intended for local development.
+This is a portfolio MVP with real AI grading available and mock mode as the safe default. Upload limits are 10 MB per file, 50 PDF pages, and 20 megapixels per image. Scanned or low-text PDFs are currently rejected in OpenAI mode: upload a clear PNG/JPG image or a PDF with selectable text instead. With no authentication, all assessments share one local history; the app is intended for local development, not production use.
 
 ## Future Improvements
 
-- Enable real AI grading with controlled API usage and quality checks.
+- Expand grading quality checks and support for scanned PDFs.
 - Add authentication and separate user histories.
 - Deploy the frontend and backend.
 - Add optional scalability improvements as usage grows.

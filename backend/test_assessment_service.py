@@ -32,7 +32,7 @@ class MockAssessmentTests(unittest.TestCase):
                 response = self.assess(client, data={"criteria_text": "Award marks for reasoning."})
                 self.assertEqual(response.status_code, 200)
                 payload = response.json()
-                self.assertEqual(set(payload), {"id", "grading_mode", "result"})
+                self.assertEqual(set(payload), {"id", "grading_mode", "result", "usage"})
                 self.assertEqual(payload["grading_mode"], "mock")
                 percentage = payload["result"].pop("percentage")
                 result = AssessmentResult.model_validate(payload["result"])
@@ -41,8 +41,8 @@ class MockAssessmentTests(unittest.TestCase):
                 self.assertTrue(all(question.evidence for question in result.questions))
                 ai_client.assert_not_called()
 
-    def test_openai_and_unknown_modes_are_blocked(self):
-        for mode in ["openai", "invalid"]:
+    def test_unknown_mode_is_blocked(self):
+        for mode in ["invalid"]:
             with patch.dict(os.environ, {"GRADING_MODE": mode, "OPENAI_API_KEY": "test-key-not-real"}, clear=True), patch("assessment_service.load_dotenv"), patch("ai_grading.AsyncOpenAI") as ai_client, TestClient(app) as client:
                 response = self.assess(client, data={"criteria_text": "Criteria"})
                 self.assertEqual(response.status_code, 503)

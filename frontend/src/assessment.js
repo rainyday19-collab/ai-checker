@@ -26,6 +26,11 @@ export function validateAssessmentResponse(data) {
   const result = data?.result;
   const validScore = (score, maximum) => Number.isFinite(score) && Number.isFinite(maximum) && score >= 0 && maximum > 0 && score <= maximum;
   const validText = (text) => typeof text === 'string' && text.trim().length > 0;
+  if (data?.usage != null && (!validText(data.usage.model) ||
+      !['input_tokens', 'output_tokens', 'total_tokens'].every((key) => data.usage[key] == null ||
+        (Number.isInteger(data.usage[key]) && data.usage[key] >= 0)))) {
+    throw new Error('The backend returned invalid usage information. Please try again.');
+  }
   if (!['mock', 'openai'].includes(data?.grading_mode) || !result ||
       !validScore(result.total_score, result.max_score) || !validText(result.summary) ||
       !Number.isFinite(result.percentage) || !Array.isArray(result.questions) || !result.questions.length ||

@@ -3,10 +3,12 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from openai import (AsyncOpenAI, AuthenticationError, RateLimitError, APITimeoutError,
+                    APIConnectionError, OpenAIError)
+from pydantic import ValidationError
 from openai.types.responses import ResponseInputContentParam, ResponseInputParam
 
-from grading import AssessmentResult, GradingInput, PreparedContent
+from grading import AIUsage, AssessmentResponse, AssessmentResult, GradingInput, PreparedContent
 
 SYSTEM_INSTRUCTION = (
     "Assess the student's actual answers only against the supplied mark scheme and criteria. "
@@ -25,7 +27,9 @@ class AIConfigurationError(RuntimeError):
 
 
 class AIGradingError(RuntimeError):
-    pass
+    def __init__(self, message: str, status_code: int = 502):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def get_configuration() -> tuple[str, str]:
@@ -34,7 +38,7 @@ def get_configuration() -> tuple[str, str]:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key or api_key == "your_api_key_here":
         raise AIConfigurationError("Set OPENAI_API_KEY in the backend environment before enabling AI grading.")
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip()
+    model = os.getenv("OPENAI_MODEL", "").strip()
     if not model:
         raise AIConfigurationError("OPENAI_MODEL must not be empty.")
     return api_key, model
@@ -72,21 +76,47 @@ def build_model_input(prepared: GradingInput) -> ResponseInputParam:
     return [{"role": "user", "content": parts}]
 
 
-async def grade_assessment(prepared: GradingInput, *, allow_api_request: bool = False) -> AssessmentResult:
-    """Future opt-in entry point; not connected to any application endpoint."""
+async def grade_assessment(prepared: GradingInput, *, allow_api_request: bool = False) -> AssessmentResponse:
+    """One structured request, with retries disabled to avoid duplicate charges."""
     if not allow_api_request:
         raise AIConfigurationError("AI requests are disabled. Explicit opt-in is required to enable grading.")
     api_key, model = get_configuration()
+    documents = [prepared.student_work, prepared.mark_scheme]
+    if any(document and document.kind == "pdf_visual" for document in documents):
+        raise AIGradingError("Scanned or low-text PDFs are not supported for AI grading yet. Upload readable PNG/JPG pages or a PDF with selectable text.", 422)
     model_input = build_model_input(prepared)
-    async with AsyncOpenAI(api_key=api_key, timeout=60.0, max_retries=0) as client:
-        response = await client.responses.parse(
-            model=model,
-            instructions=SYSTEM_INSTRUCTION,
-            input=model_input,
-            text_format=AssessmentResult,
-            max_output_tokens=3000,
-            store=False,
+    try:
+        async with AsyncOpenAI(api_key=api_key, timeout=60.0, max_retries=0) as client:
+            response = await client.responses.parse(
+                model=model,
+                instructions=SYSTEM_INSTRUCTION,
+                input=model_input,
+                text_format=AssessmentResult,
+                max_output_tokens=3000,
+                store=False,
+            )
+        if response.status != "completed" or response.output_parsed is None:
+            raise AIGradingError("AI did not return a complete assessment. No result was saved.")
+        result = AssessmentResult.model_validate(response.output_parsed.model_dump(exclude={"percentage"}))
+        usage = response.usage
+        return AssessmentResponse(
+            grading_mode="openai", result=result,
+            usage=AIUsage(model=response.model or model,
+                          input_tokens=usage.input_tokens if usage else None,
+                          output_tokens=usage.output_tokens if usage else None,
+                          total_tokens=usage.total_tokens if usage else None),
         )
-    if response.status != "completed" or response.output_parsed is None:
-        raise AIGradingError("The model did not return a complete structured assessment.")
-    return response.output_parsed
+    except AuthenticationError as error:
+        raise AIGradingError("OpenAI authentication failed. Check the backend API key configuration.", 503) from error
+    except RateLimitError as error:
+        if error.code == "insufficient_quota":
+            raise AIGradingError("OpenAI credits or quota are insufficient. Check your API billing before retrying.", 402) from error
+        raise AIGradingError("OpenAI rate limit reached. Wait before trying again.", 429) from error
+    except APITimeoutError as error:
+        raise AIGradingError("AI grading timed out. No result was saved; check API usage before retrying.", 504) from error
+    except APIConnectionError as error:
+        raise AIGradingError("Could not connect to OpenAI. No result was saved; check your connection and API usage before retrying.") from error
+    except (ValidationError, ValueError, AttributeError) as error:
+        raise AIGradingError("AI returned an invalid assessment. No result was saved.") from error
+    except OpenAIError as error:
+        raise AIGradingError("OpenAI could not complete grading. Check your model configuration and try again later.") from error

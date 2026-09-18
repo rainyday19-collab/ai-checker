@@ -29,6 +29,15 @@ export default function ResultsPreview({ assessment, onReset, saved = false, onB
         ))}
       </div>
       {isDemo && <p className="example-note">Fixed development data. Your files were validated and processed, but their answers were not analyzed or graded.</p>}
+      {assessment.usage && <details className="ai-usage">
+        <summary>AI usage</summary>
+        <dl>
+          <div><dt>Model</dt><dd>{assessment.usage.model}</dd></div>
+          <div><dt>Input tokens</dt><dd>{assessment.usage.input_tokens ?? 'Unavailable'}</dd></div>
+          <div><dt>Output tokens</dt><dd>{assessment.usage.output_tokens ?? 'Unavailable'}</dd></div>
+          <div><dt>Total tokens</dt><dd>{assessment.usage.total_tokens ?? 'Unavailable'}</dd></div>
+        </dl>
+      </details>}
       <div className="result-actions">{onBack && <button className="secondary-button" type="button" onClick={onBack}>{backLabel}</button>}<button className="secondary-button" type="button" onClick={onReset}>Check another work</button></div>
     </section>
   );

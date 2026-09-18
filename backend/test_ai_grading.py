@@ -57,8 +57,8 @@ class AIGradingTests(unittest.IsolatedAsyncioTestCase):
         client = AsyncOpenAI(api_key="test-key-not-real", http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
         with patch("ai_grading.get_configuration", return_value=("test-key-not-real", "test-model")), patch("ai_grading.AsyncOpenAI", return_value=client):
             result = await grade_assessment(prepared_input(), allow_api_request=True)
-        self.assertIsInstance(result, AssessmentResult)
-        self.assertEqual(result.percentage, 62.5)
+        self.assertIsInstance(result.result, AssessmentResult)
+        self.assertEqual(result.result.percentage, 62.5)
 
     async def test_refusal_is_not_an_assessment(self):
         def handler(request):

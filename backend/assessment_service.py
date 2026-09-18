@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from ai_grading import grade_assessment
 
 from grading import AssessmentResponse, AssessmentResult, GradingInput
 
@@ -39,6 +40,5 @@ async def run_assessment(prepared: GradingInput) -> AssessmentResponse:
     if mode == "mock":
         return AssessmentResponse(grading_mode="mock", result=await mock_grade_assessment(prepared))
     if mode == "openai":
-        # Future connection point. No AI client is imported or called here.
-        raise GradingModeError("OpenAI grading is not enabled. Use GRADING_MODE=mock.")
-    raise GradingModeError("Invalid grading mode. Use GRADING_MODE=mock.")
+        return await grade_assessment(prepared, allow_api_request=True)
+    raise GradingModeError("Invalid grading mode. Use GRADING_MODE=mock or openai.")

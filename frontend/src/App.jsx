@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import UploadArea from './UploadArea.jsx';
 import ResultsPreview from './ResultsPreview.jsx';
 import HistoryView from './HistoryView.jsx';
@@ -14,6 +14,7 @@ export default function App() {
   const [requestError, setRequestError] = useState('');
   const [assessment, setAssessment] = useState(null);
   const [resetKey, setResetKey] = useState(0);
+  const requestInFlight = useRef(false);
   const isLoading = requestStatus === 'loading';
   const canCheck = Boolean(studentWork && (markScheme || criteria.trim()));
 
@@ -38,7 +39,9 @@ export default function App() {
   }
 
   async function checkWork() {
-    if (!canCheck || isLoading) return;
+    if (!canCheck || requestInFlight.current) return;
+    // A synchronous guard also blocks clicks before React renders the loading state.
+    requestInFlight.current = true;
     const formData = new FormData();
     formData.append('student_work', studentWork);
     if (markScheme) formData.append('mark_scheme', markScheme);
@@ -58,13 +61,15 @@ export default function App() {
     } catch (error) {
       setRequestStatus('error');
       setRequestError(error instanceof TypeError ? 'Could not reach the backend. Make sure it is running on the configured API URL.' : error.message);
+    } finally {
+      requestInFlight.current = false;
     }
   }
 
-  const statusMessage = isLoading ? 'Sending files to the backend…'
-    : requestStatus === 'success' ? 'Demo result saved to History. Uploaded work was not graded.'
+  const statusMessage = isLoading ? 'Checking work. Please keep this page open…'
+    : requestStatus === 'success' ? (assessment?.grading_mode === 'mock' ? 'Demo result saved to History. Uploaded work was not graded.' : 'Assessment complete and saved to History.')
     : requestStatus === 'error' ? requestError
-    : canCheck ? 'Ready to check. Development mode returns a fixed demo result.'
+    : canCheck ? 'Ready to check. Successful results are saved to History.'
     : 'Add student work and a mark scheme or pasted criteria to continue.';
 
   return (
@@ -103,7 +108,7 @@ export default function App() {
               <textarea id="criteria" rows="4" disabled={isLoading} value={criteria} onChange={(event) => { setCriteria(event.target.value); setRequestStatus('idle'); setRequestError(''); setAssessment(null); }} placeholder="Enter the expected answers, marks available, and any criteria for awarding partial credit…"/>
             </section>
           </div>
-          <div className={`check-action request-${requestStatus}`}><p id="preview-note" role={requestStatus === 'error' ? 'alert' : 'status'}><span className="status-dot" aria-hidden="true"/>{statusMessage}</p><button className="primary-button" type="button" disabled={!canCheck || isLoading} onClick={checkWork} aria-busy={isLoading} aria-describedby="preview-note">{isLoading ? 'Sending…' : 'Check Work'} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" strokeLinecap="round" strokeLinejoin="round"/></svg></button></div>
+          <div className={`check-action request-${requestStatus}`}><p id="preview-note" role={requestStatus === 'error' ? 'alert' : 'status'}><span className="status-dot" aria-hidden="true"/>{statusMessage}</p><button className="primary-button" type="button" disabled={!canCheck || isLoading} onClick={checkWork} aria-busy={isLoading} aria-describedby="preview-note">{isLoading ? 'Checking…' : 'Check Work'} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" strokeLinecap="round" strokeLinejoin="round"/></svg></button></div>
         </section>
         {assessment && <ResultsPreview assessment={assessment} onReset={resetAssessment}/>}
         </>}

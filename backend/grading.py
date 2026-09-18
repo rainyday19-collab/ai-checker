@@ -47,10 +47,18 @@ class AssessmentResult(BaseModel):
         return round(self.total_score / self.max_score * 100, 2)
 
 
+class AIUsage(BaseModel):
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    total_tokens: int | None = Field(default=None, ge=0)
+    model: str
+
+
 class AssessmentResponse(BaseModel):
     id: int | None = None
     grading_mode: Literal["mock", "openai"]
     result: AssessmentResult
+    usage: AIUsage | None = None
 
 
 class AssessmentHistoryItem(BaseModel):

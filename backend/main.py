@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 import database
+from ai_grading import AIConfigurationError, AIGradingError
 from document_processing import process_document
 from assessment_service import GradingModeError, run_assessment
 from grading import AssessmentHistoryItem, AssessmentResponse, AssessmentStatistics, SavedAssessment, prepare_grading_input
@@ -61,6 +62,10 @@ async def assess(
         return assessment.model_copy(update={"id": assessment_id})
     except GradingModeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+    except AIConfigurationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except AIGradingError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
     finally:
         await student_work.close()
         if mark_scheme:

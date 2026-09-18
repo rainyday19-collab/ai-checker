@@ -16,7 +16,7 @@ class AssessmentPersistenceTests(unittest.TestCase):
     def setUp(self):
         temporary = TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        for replacement in [patch("database.DB_PATH", Path(temporary.name) / "ai_checker.db"), patch.dict("os.environ", {"GRADING_MODE": "mock"}, clear=True), patch("assessment_service.load_dotenv")]:
+        for replacement in [patch("database.DB_PATH", Path(temporary.name) / "ai_checker.db"), patch.dict("os.environ", {"GRADING_MODE": "mock"}, clear=True), patch("assessment_service.load_dotenv"), patch("ai_grading.load_dotenv")]:
             replacement.start()
             self.addCleanup(replacement.stop)
         ai_patch = patch("ai_grading.AsyncOpenAI")

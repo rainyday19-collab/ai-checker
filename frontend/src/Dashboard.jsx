@@ -59,7 +59,7 @@ export default function Dashboard({ onNewAssessment, onHistory }) {
 
   return (
     <div className="history-view dashboard-view">
-      <div className="history-page-heading dashboard-heading"><div><span className="eyebrow">YOUR OVERVIEW</span><h1>Dashboard</h1><p>A concise overview of your saved assessment activity.</p></div><span className="badge example-badge">Demo data</span></div>
+      <div className="history-page-heading dashboard-heading"><div><span className="eyebrow">YOUR OVERVIEW</span><h1>Dashboard</h1><p>A concise overview of your saved assessment activity.</p></div><span className="badge example-badge">Saved results</span></div>
       {selected ? <ResultsPreview assessment={selected} saved onBack={() => setSelected(null)} backLabel="Back to Dashboard" onReset={onNewAssessment}/> : <>
         {error && <div className="history-error card"><p role="alert">{error}</p><button className="secondary-button" type="button" disabled={loading || opening !== null} onClick={() => setRefresh((value) => value + 1)}>Retry dashboard</button></div>}
         {loading ? <div className="card history-state" role="status">Loading dashboard…</div> : statistics && <>
@@ -67,7 +67,7 @@ export default function Dashboard({ onNewAssessment, onHistory }) {
             {cards.map((card) => <section className="card statistic-card" key={card.label} aria-label={card.label}><h2>{card.label}</h2><strong>{card.value}</strong><p>{card.hint}</p></section>)}
           </div>
           <section className="card history-card" aria-labelledby="recent-title">
-            <div className="workspace-heading"><div><h2 id="recent-title">Recent assessments</h2><p className="dashboard-caption">Recent demo performance · latest five saved results</p></div><button className="secondary-button" type="button" onClick={onHistory}>View all history</button></div>
+            <div className="workspace-heading"><div><h2 id="recent-title">Recent assessments</h2><p className="dashboard-caption">Recent performance · latest five saved results</p></div><button className="secondary-button" type="button" onClick={onHistory}>View all history</button></div>
             {statistics.total_assessments === 0 ? <div className="history-state"><h3>Your first assessment starts here</h3><p>Create an assessment to see saved results and statistics in your dashboard.</p><button className="primary-button dashboard-create" type="button" onClick={onNewAssessment}>Create your first assessment</button></div> : <ul className="history-list">
               {statistics.recent_assessments.map((item) => <li className="history-item" key={item.id}>
                 <div className="history-file"><h3>{item.student_filename}</h3><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time></div>
@@ -75,7 +75,7 @@ export default function Dashboard({ onNewAssessment, onHistory }) {
                 <button className="secondary-button" type="button" disabled={opening !== null} onClick={() => openAssessment(item.id)} aria-label={`Open assessment ${item.id}: ${item.student_filename}`}>{opening === item.id ? 'Opening…' : 'Open result'}</button>
               </li>)}
             </ul>}
-            <p className="example-note">Statistics summarize saved demo results. Uploaded work has not been AI-graded.</p>
+            <p className="example-note">Statistics summarize saved assessments. Mock assessments remain labeled as demo results.</p>
           </section>
         </>}
       </>}
