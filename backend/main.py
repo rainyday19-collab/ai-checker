@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 import database
+from classes_api import router as classes_router
+from submissions_api import router as submissions_router
 from ai_grading import AIConfigurationError, AIGradingError
 from document_processing import process_document
 from assessment_service import GradingModeError, run_assessment
@@ -21,6 +23,8 @@ async def lifespan(app):
 
 
 app = FastAPI(title="AI Checker", lifespan=lifespan)
+app.include_router(classes_router)
+app.include_router(submissions_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

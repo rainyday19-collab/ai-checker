@@ -1,0 +1,114 @@
+import { useEffect, useRef, useState } from 'react';
+import * as api from './submissions.js';
+import { errorMessage } from './assessment.js';
+import UploadArea from './UploadArea.jsx';
+import { useLocation, useNavigate } from 'react-router-dom';
+
+export default function SubmissionsView({ assignment, onBusyChange }) {
+  const [items, setItems] = useState([]);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [form, setForm] = useState(Boolean(location.state?.grade));
+  const [name, setName] = useState('');
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [grading, setGrading] = useState(false);
+  const [working, setWorking] = useState(null);
+  const [error, setError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [refresh, setRefresh] = useState(0);
+  const inFlight = useRef(false);
+  const mounted = useRef(false);
+  const canGrade = Boolean(assignment.mark_scheme?.has_file || assignment.mark_scheme_text?.trim());
+  const busy = grading || working != null;
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
+    api.getSubmissions(assignment.id, controller.signal)
+      .then((data) => { if (!controller.signal.aborted) setItems(data); })
+      .catch((failure) => { if (!controller.signal.aborted) setError(errorMessage(failure)); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [assignment.id, refresh]);
+
+  function showForm() {
+    setName('');
+    setFile(null);
+    setFormError('');
+    setForm(true);
+  }
+
+  async function grade(event) {
+    event.preventDefault();
+    if (inFlight.current || !name.trim() || !file || !canGrade) return;
+    inFlight.current = true;
+    setGrading(true);
+    onBusyChange(true);
+    setFormError('');
+    try {
+      const data = await api.gradeSubmission(assignment.id, name, file);
+      // Browser Back may leave this page while the backend finishes grading.
+      if (!mounted.current) return;
+      navigate(`/submissions/${data.id}`);
+      setForm(false);
+      setName('');
+      setFile(null);
+      setRefresh((value) => value + 1);
+    } catch (failure) {
+      setFormError(errorMessage(failure));
+    } finally {
+      inFlight.current = false;
+      setGrading(false);
+      onBusyChange(false);
+    }
+  }
+
+  function open(id) { navigate(`/submissions/${id}`); }
+
+  async function remove(id) {
+    if (busy || !window.confirm('Delete this submission? Its assessment will remain in History.')) return;
+    setWorking(id);
+    setError('');
+    try {
+      await api.deleteSubmission(id);
+      setItems((previous) => previous.filter((item) => item.id !== id));
+    } catch (failure) { setError(errorMessage(failure)); }
+    finally { setWorking(null); }
+  }
+
+  return <section className="submissions-view" aria-labelledby="submissions-title">
+    <div className="teacher-heading"><div><h2 id="submissions-title">Student submissions</h2><p className="teacher-meta">{items.length} saved submission{items.length === 1 ? '' : 's'}</p></div>
+      {!form && <button className="primary-button" disabled={busy || !canGrade} onClick={showForm}>+ Grade Student Work</button>}
+    </div>
+    {!canGrade && <p className="teacher-meta">This assignment has no saved mark scheme. Create an assignment with criteria before grading.</p>}
+    <>
+      {form && <section className="card teacher-form"><h3>Grade Student Work</h3><p className="teacher-meta">Using the mark scheme saved with this assignment.</p>
+        <form onSubmit={grade}>
+          <label className="teacher-field">Student name *<input required maxLength={150} disabled={grading} value={name} onChange={(event) => setName(event.target.value)}/></label>
+          <UploadArea title="Upload student work" description="One PDF, PNG, or JPG/JPEG" file={file} onFileChange={setFile} disabled={grading}/>
+          {formError && <p className="teacher-error" role="alert">{formError}</p>}
+          {grading && <p className="teacher-meta" role="status">Grading student work… Keep this page open.</p>}
+          <div className="teacher-actions"><button type="button" className="secondary-button" disabled={grading} onClick={() => setForm(false)}>Cancel</button>
+            <button type="submit" className="primary-button" disabled={grading || !canGrade || !name.trim() || !file} aria-busy={grading}>{grading ? 'Grading…' : 'Grade Work'}</button></div>
+        </form>
+      </section>}
+      <div className="card history-card">
+        {error && <div className="history-error"><p role="alert">{error}</p><button className="secondary-button" disabled={busy || loading} onClick={() => setRefresh((value) => value + 1)}>Retry list</button></div>}
+        {loading ? <p className="history-state" role="status">Loading submissions…</p> : !error && !items.length ? <div className="history-state"><h3>No student submissions yet.</h3><p>Grade one student's work using this assignment's saved criteria.</p></div> :
+          <ul className="history-list">{items.map((item) => <li className="history-item" key={item.id}>
+            <div className="history-file"><h3>{item.student_name}</h3><p className="teacher-meta submission-filename">{item.original_filename}</p><time>{item.graded_at ? new Date(item.graded_at).toLocaleString() : 'Not graded'}</time></div>
+            <div className="history-score"><strong>{item.assessment_id == null ? '—' : `${item.total_score} / ${item.max_score}`}</strong><span>{item.percentage == null ? 'Result unavailable' : `${item.percentage}%`}</span><span>{item.assessment_id == null && item.status === 'graded' ? 'Result removed' : item.status === 'graded' ? 'Graded' : item.status}</span></div>
+            <div className="history-item-actions"><button className="secondary-button" disabled={busy || form} onClick={() => open(item.id)}>{working === item.id ? 'Working…' : 'Open result'}</button>
+              <button className="delete-button" disabled={busy || form} onClick={() => remove(item.id)}>Delete</button></div>
+          </li>)}</ul>}
+      </div>
+    </>
+  </section>;
+}

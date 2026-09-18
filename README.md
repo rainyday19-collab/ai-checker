@@ -18,8 +18,14 @@ Teachers need to compare student answers with grading criteria and explain why m
 - View dashboard statistics and recent performance bars in a responsive React interface.
 - Grade against supplied mark schemes or criteria using OpenAI Structured Outputs, or use safe mock grading.
 - Display model and input/output/total token metadata from the grading response.
+- Organize classes and assignments, save a mark scheme once, and reuse it for student submissions.
+- Open classes, assignments, submissions, and saved results through persistent URLs that support refresh and direct links.
 
-Uploaded file contents and manual criteria text are not persisted. Only filenames, assessment metadata, and results are saved.
+Uploaded student work is not persisted. Submission metadata and validated results are saved in SQLite. Assignment criteria are saved in SQLite, and uploaded assignment mark schemes are stored privately in `backend/data/mark_schemes/`; the entire local data directory is excluded from Git. Standalone assessment uploads and criteria are not retained.
+
+## Teacher Workflow
+
+Create a class → create an assignment → save its mark scheme → grade student work → open the saved result. Assignment schemes accept pasted text, PDF, PNG, or JPG/JPEG files and are reused automatically for each submission. Maximum marks come from the validated grading result rather than a required manual total. The standalone New Assessment workflow remains available.
 
 ## Screenshots
 
@@ -45,7 +51,7 @@ These screenshots show the portfolio MVP in `GRADING_MODE=mock`. Assessment scor
 
 | Layer | Technologies |
 | --- | --- |
-| Frontend | React, Vite, JavaScript, plain CSS |
+| Frontend | React, Vite, React Router, JavaScript, plain CSS |
 | Backend | Python, FastAPI, Pydantic, built-in SQLite, pypdf, Pillow |
 | AI service | Official OpenAI Python SDK, Structured Outputs, image inputs and extracted PDF text |
 
@@ -74,7 +80,7 @@ The assessment service prepares text or image inputs and selects a grader by `GR
 ```text
 ai-checker/
 ├── frontend/
-│   ├── src/                   # Interface, uploads, results, dashboard, history
+│   ├── src/                   # Views, uploads, results, and URL navigation
 │   ├── .env.example
 │   └── package.json
 ├── backend/
@@ -84,6 +90,9 @@ ai-checker/
 │   ├── assessment_service.py  # Mock grader and mode selection
 │   ├── ai_grading.py          # OpenAI grading, usage metadata, and safe errors
 │   ├── database.py            # SQLite persistence
+│   ├── classes_api.py         # Classes and assignments
+│   ├── submissions_api.py     # Assignment grading and saved submissions
+│   ├── mark_scheme_storage.py # Private local assignment scheme storage
 │   ├── test_*.py              # Backend tests
 │   ├── .env.example
 │   └── requirements.txt
@@ -149,7 +158,7 @@ cd backend
 .\.venv\Scripts\python.exe -m unittest discover -v
 ```
 
-Tests use temporary databases and mocked OpenAI transports; no real API requests or credentials are needed.
+Tests use temporary databases, temporary mark scheme storage, and mocked OpenAI clients/transports; no real API requests or credentials are needed.
 
 In a separate terminal from the project root, build the frontend:
 
@@ -158,11 +167,16 @@ cd frontend
 npm run build
 ```
 
-For a manual check in mock mode, submit sample work with criteria, view the demo result, find it in History, and verify Dashboard updates after saving or deleting it. In OpenAI mode, each submission uses the API; token metadata is available in the result's AI usage section.
+For a manual teacher-workflow check in mock mode, create a class and assignment, save a scheme, grade sample work, and open the saved submission after refreshing its URL. For a standalone check, submit sample work with criteria, view the demo result, find it in History, and verify Dashboard updates after saving or deleting it. In OpenAI mode, each submission uses the API; token metadata is available in the result's AI usage section.
 
 ## Current Status
 
-This is a portfolio MVP with real AI grading available and mock mode as the safe default. Upload limits are 10 MB per file, 50 PDF pages, and 20 megapixels per image. Scanned or low-text PDFs are currently rejected in OpenAI mode: upload a clear PNG/JPG image or a PDF with selectable text instead. With no authentication, all assessments share one local history; the app is intended for local development, not production use.
+This is a portfolio MVP with real AI grading available and mock mode as the safe default. Upload limits are 10 MB per file, 50 PDF pages, and 20 megapixels per image. Scanned or low-text PDFs are currently rejected in OpenAI mode: upload a clear PNG/JPG image or a PDF with selectable text instead. This is a single-teacher MVP without authentication: classes, assignments, and assessments share local storage. It is intended for local development, not production use.
+
+## Deployment Notes
+
+- Serve the frontend with an SPA fallback to `index.html` so refreshing nested URLs works.
+- Keep `backend/data/` on persistent private storage for both SQLite history and saved assignment mark schemes.
 
 ## Future Improvements
 

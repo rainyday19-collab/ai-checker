@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { requestApi, errorMessage, getSavedAssessment } from './assessment.js';
-import ResultsPreview from './ResultsPreview.jsx';
+import { requestApi, errorMessage } from './assessment.js';
+import { useNavigate } from 'react-router-dom';
 
 const formatNumber = (value) => value === null ? '—' : new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
 
@@ -23,8 +23,7 @@ export default function Dashboard({ onNewAssessment, onHistory }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
-  const [selected, setSelected] = useState(null);
-  const [opening, setOpening] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -38,17 +37,7 @@ export default function Dashboard({ onNewAssessment, onHistory }) {
     return () => controller.abort();
   }, [refresh]);
 
-  async function openAssessment(id) {
-    setOpening(id);
-    setError('');
-    try {
-      setSelected(await getSavedAssessment(id));
-    } catch (failure) {
-      setError(errorMessage(failure));
-    } finally {
-      setOpening(null);
-    }
-  }
+  function openAssessment(id) { navigate(`/history/${id}`); }
 
   const cards = statistics ? [
     { label: 'Total assessments', value: formatNumber(statistics.total_assessments), hint: 'Saved assessments' },
@@ -60,8 +49,8 @@ export default function Dashboard({ onNewAssessment, onHistory }) {
   return (
     <div className="history-view dashboard-view">
       <div className="history-page-heading dashboard-heading"><div><span className="eyebrow">YOUR OVERVIEW</span><h1>Dashboard</h1><p>A concise overview of your saved assessment activity.</p></div><span className="badge example-badge">Saved results</span></div>
-      {selected ? <ResultsPreview assessment={selected} saved onBack={() => setSelected(null)} backLabel="Back to Dashboard" onReset={onNewAssessment}/> : <>
-        {error && <div className="history-error card"><p role="alert">{error}</p><button className="secondary-button" type="button" disabled={loading || opening !== null} onClick={() => setRefresh((value) => value + 1)}>Retry dashboard</button></div>}
+      <>
+        {error && <div className="history-error card"><p role="alert">{error}</p><button className="secondary-button" type="button" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>Retry dashboard</button></div>}
         {loading ? <div className="card history-state" role="status">Loading dashboard…</div> : statistics && <>
           <div className="statistics-grid">
             {cards.map((card) => <section className="card statistic-card" key={card.label} aria-label={card.label}><h2>{card.label}</h2><strong>{card.value}</strong><p>{card.hint}</p></section>)}
@@ -72,13 +61,13 @@ export default function Dashboard({ onNewAssessment, onHistory }) {
               {statistics.recent_assessments.map((item) => <li className="history-item" key={item.id}>
                 <div className="history-file"><h3>{item.student_filename}</h3><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time></div>
                 <div className="recent-performance"><div className="history-score"><strong>{item.total_score} <span>/ {item.max_score}</span></strong><span>{item.percentage}%</span></div><div className="performance-bar" aria-hidden="true"><span style={{ width: `${item.percentage}%` }}/></div></div>
-                <button className="secondary-button" type="button" disabled={opening !== null} onClick={() => openAssessment(item.id)} aria-label={`Open assessment ${item.id}: ${item.student_filename}`}>{opening === item.id ? 'Opening…' : 'Open result'}</button>
+                <button className="secondary-button" type="button" disabled={loading} onClick={() => openAssessment(item.id)} aria-label={`Open assessment ${item.id}: ${item.student_filename}`}>Open result</button>
               </li>)}
             </ul>}
             <p className="example-note">Statistics summarize saved assessments. Mock assessments remain labeled as demo results.</p>
           </section>
         </>}
-      </>}
+      </>
     </div>
   );
 }

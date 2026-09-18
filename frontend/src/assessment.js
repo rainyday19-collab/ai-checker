@@ -14,8 +14,8 @@ export function errorMessage(error) {
   return error instanceof TypeError ? 'Could not reach the backend. Make sure it is running.' : error.message;
 }
 
-export async function getSavedAssessment(id) {
-  const data = validateAssessmentResponse(await requestApi(`/api/assessments/${id}`));
+export async function getSavedAssessment(id, signal) {
+  const data = validateAssessmentResponse(await requestApi(`/api/assessments/${id}`, { signal }));
   if (data.id !== id || typeof data.student_filename !== 'string' || !Number.isFinite(Date.parse(data.created_at))) {
     throw new Error('The backend returned an invalid saved assessment. Please try again.');
   }

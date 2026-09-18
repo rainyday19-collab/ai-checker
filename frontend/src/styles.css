@@ -218,3 +218,34 @@ footer > span { font-weight: 600; color: #4d5369; }
 .ai-usage dl { display: flex; flex-wrap: wrap; gap: 1rem 2rem; }
 .ai-usage dt { color: #64748b; }
 .ai-usage dd { margin: .3rem 0 0; overflow-wrap: anywhere; }
+.teacher-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin: 20px 0; }
+.teacher-heading h2 { margin: 0; }
+.teacher-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.teacher-item { overflow: hidden; }
+.teacher-card-open { display: flex; flex-direction: column; gap: 12px; padding: 24px; width: 100%; text-align: left; border: 0; background: white; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; transition: background .18s; }
+.teacher-card-open:hover { background: #f8f7fc; }
+.teacher-item-title { font-size: 16px; font-weight: 600; color: #202438; overflow-wrap: anywhere; }
+.teacher-meta { color: var(--muted); font-size: 11px; line-height: 1.7; }
+.teacher-item-actions { padding: 0 24px 20px; }
+.teacher-form, .teacher-details { padding: 26px; margin-bottom: 22px; }
+.teacher-form h2 { margin-top: 0; }
+.teacher-form fieldset { border: 0; margin: 0; padding: 0; }
+.teacher-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.teacher-field { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; font-size: 12px; font-weight: 500; }
+.teacher-field input { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 7px; background: white; color: #202438; font: inherit; }
+.teacher-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.teacher-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+.teacher-error { color: #a12637; font-size: 12px; }
+.teacher-copy { color: var(--muted); font-size: 13px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.criteria-copy { background: #f8f7fc; padding: 18px; border-radius: 7px; }
+.teacher-section-title { margin: 26px 0 18px; }
+.teacher-card-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.teacher-card-open:disabled { cursor: not-allowed; }
+.submission-filename { overflow-wrap: anywhere; margin: 6px 0; }
+.submissions-view { margin-top: 28px; }
+@media (max-width: 900px) { .teacher-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) {
+  .teacher-card-grid, .teacher-form-grid { grid-template-columns: 1fr; }
+  .teacher-heading { flex-wrap: wrap; gap: 14px; }
+  .teacher-form, .teacher-details { padding: 22px; }
+}

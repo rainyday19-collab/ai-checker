@@ -1,12 +1,20 @@
 import { useRef, useState } from 'react';
+import { Link, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import SavedResultView from './SavedResultView.jsx';
 import UploadArea from './UploadArea.jsx';
 import ResultsPreview from './ResultsPreview.jsx';
 import HistoryView from './HistoryView.jsx';
 import Dashboard from './Dashboard.jsx';
+import ClassesView from './ClassesView.jsx';
 import { API_URL, validateAssessmentResponse } from './assessment.js';
 
 export default function App() {
-  const [view, setView] = useState('dashboard');
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const view = pathname === '/' ? 'dashboard' : pathname.startsWith('/history') ? 'history'
+    : /^\/(classes|assignments|submissions)(\/|$)/.test(pathname) ? 'classes' : pathname === '/new-assessment' ? 'new' : '';
+
+  const [submissionBusy, setSubmissionBusy] = useState(false);
   const [studentWork, setStudentWork] = useState(null);
   const [markScheme, setMarkScheme] = useState(null);
   const [criteria, setCriteria] = useState('');
@@ -16,6 +24,7 @@ export default function App() {
   const [resetKey, setResetKey] = useState(0);
   const requestInFlight = useRef(false);
   const isLoading = requestStatus === 'loading';
+  const navigationBusy = isLoading || submissionBusy;
   const canCheck = Boolean(studentWork && (markScheme || criteria.trim()));
 
   function updateFile(setFile, file) {
@@ -26,7 +35,7 @@ export default function App() {
   }
 
   function resetAssessment() {
-    setView('new');
+    navigate('/new-assessment');
     setStudentWork(null);
     setMarkScheme(null);
     setCriteria('');
@@ -75,17 +84,27 @@ export default function App() {
   return (
     <>
       <header className="site-header"><div className="header-inner">
-        <a className="brand" href="#" aria-label="AI Checker home"><span className="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="4" y="3" width="16" height="18" rx="4"/><path d="m8 12 3 3 5-6" strokeLinecap="round" strokeLinejoin="round"/></svg></span><span>AI Checker</span></a>
+        <Link className="brand" to="/" onClick={(event) => { if (navigationBusy) event.preventDefault(); }} aria-label="AI Checker home"><span className="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="4" y="3" width="16" height="18" rx="4"/><path d="m8 12 3 3 5-6" strokeLinecap="round" strokeLinejoin="round"/></svg></span><span>AI Checker</span></Link>
         <nav aria-label="Main navigation">
-          <button className={`nav-view ${view === 'dashboard' ? 'active' : ''}`} type="button" disabled={isLoading} aria-current={view === 'dashboard' ? 'page' : undefined} onClick={() => setView('dashboard')}>Dashboard</button>
-          <button className={`nav-view ${view === 'new' ? 'active' : ''}`} type="button" disabled={isLoading} aria-current={view === 'new' ? 'page' : undefined} onClick={() => setView('new')}>New Assessment</button>
-          <button className={`nav-view ${view === 'history' ? 'active' : ''}`} type="button" disabled={isLoading} aria-current={view === 'history' ? 'page' : undefined} onClick={() => setView('history')}>History</button>
+          <button className={`nav-view ${view === 'dashboard' ? 'active' : ''}`} type="button" disabled={navigationBusy} aria-current={view === 'dashboard' ? 'page' : undefined} onClick={() => navigate('/')}>Dashboard</button>
+          <button className={`nav-view ${view === 'new' ? 'active' : ''}`} type="button" disabled={navigationBusy} aria-current={view === 'new' ? 'page' : undefined} onClick={() => navigate('/new-assessment')}>New Assessment</button>
+          <button className={`nav-view ${view === 'history' ? 'active' : ''}`} type="button" disabled={navigationBusy} aria-current={view === 'history' ? 'page' : undefined} onClick={() => navigate('/history')}>History</button>
+          <button className={`nav-view ${view === 'classes' ? 'active' : ''}`} type="button" disabled={navigationBusy} aria-current={view === 'classes' ? 'page' : undefined} onClick={() => navigate('/classes')}>Classes</button>
           <span className="nav-badge"><span aria-hidden="true"/>AI-powered</span>
           <button className="icon-button" type="button" disabled aria-label="GitHub repository (coming soon)" title="GitHub repository coming soon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M9 19c-4 1-4-2-6-2m12 5v-4c0-1 .3-2 1-2.5 3-.4 5-1.5 5-5A4 4 0 0 0 20 7c.3-1 .3-2-.1-3-2 0-3 1-4 1.5a13 13 0 0 0-8 0C7 5 6 4 4 4c-.4 1-.4 2-.1 3A4 4 0 0 0 3 10.5c0 3.5 2 4.6 5 5 .7.5 1 1.5 1 2.5v4" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
         </nav>
       </div></header>
       <main>
-        {view === 'dashboard' ? <Dashboard onNewAssessment={resetAssessment} onHistory={() => setView('history')}/> : view === 'history' ? <HistoryView onNewAssessment={resetAssessment}/> : <>
+        <Routes>
+          <Route path="/" element={<Dashboard onNewAssessment={resetAssessment} onHistory={() => navigate('/history')}/>}/>
+          <Route path="/history" element={<HistoryView onNewAssessment={resetAssessment}/>}/>
+          <Route path="/history/:assessmentId" element={<SavedResultView key={pathname} onNewAssessment={resetAssessment}/>}/>
+          <Route path="/submissions/:submissionId" element={<SavedResultView key={pathname} submission onNewAssessment={resetAssessment}/>}/>
+          <Route path="/classes" element={<ClassesView key={pathname} onGradingChange={setSubmissionBusy}/>}/>
+          <Route path="/classes/:classId" element={<ClassesView key={pathname} onGradingChange={setSubmissionBusy}/>}/>
+          <Route path="/assignments/:assignmentId" element={<ClassesView key={pathname} onGradingChange={setSubmissionBusy}/>}/>
+          <Route path="/new-assessment" element={<>
+
         <section className="intro" aria-labelledby="page-title">
           <span className="hero-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg>AI-powered assessment</span>
           <h1 id="page-title">Grade smarter <span>with AI</span></h1>
@@ -111,7 +130,9 @@ export default function App() {
           <div className={`check-action request-${requestStatus}`}><p id="preview-note" role={requestStatus === 'error' ? 'alert' : 'status'}><span className="status-dot" aria-hidden="true"/>{statusMessage}</p><button className="primary-button" type="button" disabled={!canCheck || isLoading} onClick={checkWork} aria-busy={isLoading} aria-describedby="preview-note">{isLoading ? 'Checking…' : 'Check Work'} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" strokeLinecap="round" strokeLinejoin="round"/></svg></button></div>
         </section>
         {assessment && <ResultsPreview assessment={assessment} onReset={resetAssessment}/>}
-        </>}
+        </>}/>
+          <Route path="*" element={<section className="card history-state"><h1>Page not found</h1><p>Choose a page from the navigation.</p><button className="secondary-button" onClick={() => navigate('/')}>Back to Dashboard</button></section>}/>
+        </Routes>
       </main>
       <footer><span>AI Checker</span> Clear marks. Meaningful feedback.</footer>
     </>

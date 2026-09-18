@@ -1,0 +1,143 @@
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile
+
+import database
+from document_processing import process_document
+from mark_scheme_storage import delete_file, save_document
+
+
+class ClassCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    name: str = Field(min_length=1, max_length=150)
+    subject: str = Field(min_length=1, max_length=150)
+    description: str | None = Field(default=None, max_length=5000)
+
+
+class ClassResponse(ClassCreate):
+    id: int
+    created_at: str
+    assignment_count: int
+
+
+class AssignmentCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid", allow_inf_nan=False)
+    title: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=5000)
+    total_marks: float | None = Field(default=None, gt=0)
+    mark_scheme_text: str | None = Field(default=None, max_length=50000)
+
+
+class MarkSchemeMetadata(BaseModel):
+    source: str
+    type: str | None
+    original_filename: str | None
+    has_text: bool
+    has_file: bool
+
+
+class AssignmentResponse(AssignmentCreate):
+    id: int
+    class_id: int
+    created_at: str
+    mark_scheme: MarkSchemeMetadata
+
+
+def public_assignment(values):
+    has_text = bool((values["mark_scheme_text"] or "").strip())
+    has_file = bool(values.get("mark_scheme_key"))
+    # Explicit response fields keep storage keys and local paths private.
+    return {key: values[key] for key in (*AssignmentCreate.model_fields, "id", "class_id", "created_at")} | {
+        "mark_scheme": {"source": "both" if has_file and has_text else "file" if has_file else "text" if has_text else "none",
+                        "type": values.get("mark_scheme_type") if has_file else "text" if has_text else None,
+                        "original_filename": values.get("mark_scheme_filename"), "has_text": has_text, "has_file": has_file}}
+
+
+router = APIRouter(prefix="/api", tags=["Classes and assignments"])
+
+
+@router.get("/classes", response_model=list[ClassResponse])
+def list_classes():
+    return database.list_classes()
+
+
+@router.post("/classes", response_model=ClassResponse, status_code=201)
+def create_class(values: ClassCreate):
+    return database.create_class(values.model_dump())
+
+
+@router.get("/classes/{class_id}", response_model=ClassResponse)
+def get_class(class_id: int):
+    result = database.get_class(class_id)
+    if result is None:
+        raise HTTPException(404, "Class not found.")
+    return result
+
+
+@router.delete("/classes/{class_id}")
+def delete_class(class_id: int):
+    if not database.delete_class(class_id):
+        raise HTTPException(404, "Class not found.")
+    return {"status": "deleted", "id": class_id}
+
+
+@router.get("/classes/{class_id}/assignments", response_model=list[AssignmentResponse])
+def list_assignments(class_id: int):
+    get_class(class_id)
+    return [public_assignment(values) for values in database.list_assignments(class_id)]
+
+
+@router.post("/classes/{class_id}/assignments", response_model=AssignmentResponse, status_code=201)
+async def create_assignment(class_id: int, request: Request):
+    form = None
+    stored = None
+    saved = False
+    try:
+        if await run_in_threadpool(database.get_class, class_id) is None:
+            raise HTTPException(404, "Class not found.")
+        if request.headers.get("content-type", "").startswith("application/json"):
+            # Retain compatibility with earlier text-only API clients.
+            values = AssignmentCreate.model_validate(await request.json())
+            upload = None
+        else:
+            form = await request.form(max_files=1, max_fields=6)
+            data = dict(form)
+            upload = data.pop("mark_scheme_file", None)
+            if upload is not None and not isinstance(upload, UploadFile):
+                raise HTTPException(422, "Mark scheme file must be an uploaded PDF or image.")
+            values = AssignmentCreate.model_validate(data)
+        if not (values.mark_scheme_text or "").strip() and upload is None:
+            raise HTTPException(422, "Upload a mark scheme file or paste non-empty grading criteria.")
+        fields = values.model_dump()
+        if upload:
+            document = await process_document(upload, "Mark scheme")
+            stored = await run_in_threadpool(save_document, document)
+            fields.update(stored)
+        result = await run_in_threadpool(database.create_assignment, class_id, fields)
+        if result is None:
+            raise HTTPException(404, "Class not found.")
+        saved = True
+        return public_assignment(result)
+    except (ValidationError, ValueError) as error:
+        raise HTTPException(422, "Provide a valid assignment title, criteria and optional description or legacy total marks.") from error
+    finally:
+        if form is not None:
+            await form.close()
+        if stored and not saved:
+            await run_in_threadpool(delete_file, stored["mark_scheme_key"])
+
+
+@router.get("/assignments/{assignment_id}", response_model=AssignmentResponse)
+def get_assignment(assignment_id: int):
+    result = database.get_assignment(assignment_id)
+    if result is None:
+        raise HTTPException(404, "Assignment not found.")
+    return public_assignment(result)
+
+
+@router.delete("/assignments/{assignment_id}")
+def delete_assignment(assignment_id: int):
+    if not database.delete_assignment(assignment_id):
+        raise HTTPException(404, "Assignment not found.")
+    return {"status": "deleted", "id": assignment_id}
