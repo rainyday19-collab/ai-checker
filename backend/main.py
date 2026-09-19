@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
+import os
 import sqlite3
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +18,24 @@ from assessment_service import GradingModeError, run_assessment
 from grading import AssessmentHistoryItem, AssessmentResponse, AssessmentStatistics, SavedAssessment, prepare_grading_input
 
 
+LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+
+
+def allowed_frontend_origins(configured_origin: str | None) -> list[str]:
+    origins = list(LOCAL_FRONTEND_ORIGINS)
+    value = (configured_origin or "").strip().rstrip("/")
+    if not value:
+        return origins
+    parsed = urlsplit(value)
+    if (parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc or
+            parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment):
+        raise ValueError("FRONTEND_ORIGIN must be one HTTP or HTTPS origin without a path.")
+    normalized = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+    if normalized not in origins:
+        origins.append(normalized)
+    return origins
+
+
 @asynccontextmanager
 async def lifespan(app):
     database.initialize_database()
@@ -27,7 +47,7 @@ app.include_router(classes_router)
 app.include_router(submissions_router)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=allowed_frontend_origins(os.getenv("FRONTEND_ORIGIN")),
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type"],
     expose_headers=["Content-Disposition"],
