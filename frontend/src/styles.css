@@ -410,11 +410,14 @@ nav[aria-label="Main navigation"] { min-width: 0; }
 .teacher-card-open:disabled { cursor: not-allowed; }
 .submission-filename { overflow-wrap: anywhere; margin: 6px 0; }
 .submissions-view { margin-top: 28px; }
+.submission-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.export-hint { margin: -8px 0 18px; }
 @media (max-width: 900px) { .teacher-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) {
   .teacher-card-grid, .teacher-form-grid { grid-template-columns: 1fr; }
   .teacher-heading { flex-wrap: wrap; gap: 14px; }
   .teacher-form, .teacher-details { padding: 22px; }
+  .submission-actions { width: 100%; display: grid; grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }

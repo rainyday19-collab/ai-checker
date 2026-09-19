@@ -1,8 +1,13 @@
+import csv
+from io import StringIO
+import json
+import re
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
+from starlette.responses import Response
 
 import database
 from ai_grading import AIConfigurationError, AIGradingError
@@ -43,6 +48,70 @@ def list_submissions(assignment_id: int):
     if database.get_assignment(assignment_id) is None:
         raise HTTPException(404, "Assignment not found.")
     return database.list_submissions(assignment_id)
+
+
+CSV_HEADERS = [
+    "Student Name", "Score", "Maximum Score", "Percentage", "Assignment",
+    "Class", "Student Work Filename", "Graded At",
+]
+
+
+def spreadsheet_safe(value: str | None) -> str:
+    """Keep user text readable while preventing spreadsheet formula execution."""
+    text = value or ""
+    if text.lstrip().startswith(("=", "+", "-", "@")):
+        return f"'{text}"
+    return text
+
+
+def csv_number(value: float) -> str:
+    return format(value, ".15g")
+
+
+def export_filename(title: str, assignment_id: int) -> str:
+    slug = "-".join(re.findall(r"[a-z0-9]+", title.casefold()))[:80].strip("-")
+    return f"{slug or f'assignment-{assignment_id}'}-results.csv"
+
+
+@router.get("/assignments/{assignment_id}/export.csv")
+def export_assignment_results(assignment_id: int):
+    assignment = database.get_assignment(assignment_id)
+    if assignment is None:
+        raise HTTPException(404, "Assignment not found.")
+    parent = database.get_class(assignment["class_id"])
+    if parent is None:
+        raise HTTPException(404, "Class not found.")
+
+    output = StringIO(newline="")
+    writer = csv.writer(output, lineterminator="\r\n")
+    writer.writerow(CSV_HEADERS)
+    for submission in reversed(database.list_submissions(assignment_id)):
+        if submission["status"] != "graded" or submission["assessment_id"] is None:
+            continue
+        try:
+            saved = database.get_assessment(submission["assessment_id"])
+        except (json.JSONDecodeError, ValidationError, TypeError, ValueError, KeyError) as error:
+            raise HTTPException(500, "A saved grading result is invalid and cannot be exported.") from error
+        if saved is None:
+            continue
+        result = saved.result
+        writer.writerow([
+            spreadsheet_safe(submission["student_name"]),
+            csv_number(result.total_score),
+            csv_number(result.max_score),
+            f"{csv_number(result.percentage)}%",
+            spreadsheet_safe(assignment["title"]),
+            spreadsheet_safe(parent["name"]),
+            spreadsheet_safe(submission["original_filename"]),
+            submission["graded_at"] or "",
+        ])
+
+    filename = export_filename(assignment["title"], assignment_id)
+    return Response(
+        content=output.getvalue().encode("utf-8-sig"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/assignments/{assignment_id}/submissions/grade", response_model=SubmissionDetail, status_code=201)

@@ -19,11 +19,13 @@ export default function SubmissionsView({ assignment, onBusyChange }) {
   const [formError, setFormError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [exporting, setExporting] = useState(false);
   const toast = useToast();
   const inFlight = useRef(false);
   const mounted = useRef(false);
   const canGrade = Boolean(assignment.mark_scheme?.has_file || assignment.mark_scheme_text?.trim());
-  const busy = grading || working != null;
+  const gradedCount = items.filter((item) => item.status === 'graded' && item.assessment_id != null).length;
+  const busy = grading || working != null || exporting;
 
   useEffect(() => {
     mounted.current = true;
@@ -75,6 +77,27 @@ export default function SubmissionsView({ assignment, onBusyChange }) {
 
   function open(id) { navigate(`/submissions/${id}`); }
 
+  async function exportCsv() {
+    if (busy || !gradedCount) return;
+    setExporting(true);
+    try {
+      const { blob, filename } = await api.downloadAssignmentCsv(assignment.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      toast('Assignment results exported.');
+    } catch (failure) {
+      toast(errorMessage(failure), 'error');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function remove(id) {
     if (busy) return;
     setWorking(id);
@@ -90,9 +113,10 @@ export default function SubmissionsView({ assignment, onBusyChange }) {
 
   return <section className="submissions-view" aria-labelledby="submissions-title">
     <div className="teacher-heading"><div><h2 id="submissions-title">Student submissions</h2><p className="teacher-meta">{items.length} saved submission{items.length === 1 ? '' : 's'}</p></div>
-      {!form && <button className="primary-button" disabled={busy || !canGrade} onClick={showForm}>+ Grade Student Work</button>}
+      {!form && <div className="submission-actions"><button className="secondary-button" type="button" disabled={busy || loading || gradedCount === 0} title={gradedCount === 0 ? 'Export is available after a submission has been graded.' : 'Download graded results as CSV'} onClick={exportCsv}>{exporting ? 'Exporting…' : 'Export CSV'}</button><button className="primary-button" disabled={busy || !canGrade} onClick={showForm}>+ Grade Student Work</button></div>}
     </div>
     {!canGrade && <p className="teacher-meta">This assignment has no saved mark scheme. Create an assignment with criteria before grading.</p>}
+    {!loading && !error && gradedCount === 0 && <p className="teacher-meta export-hint">Export CSV becomes available after the first successfully graded Submission.</p>}
     <>
       {form && <section className="card teacher-form"><h3>Grade Student Work</h3><p className="teacher-meta">Using the mark scheme saved with this assignment.</p>
         <form onSubmit={grade}>

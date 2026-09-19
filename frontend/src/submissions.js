@@ -1,4 +1,4 @@
-import { requestApi, validateAssessmentResponse } from './assessment.js';
+import { API_URL, requestApi, validateAssessmentResponse } from './assessment.js';
 
 function validateDetail(data) {
   if (!data || !Number.isInteger(data.id) || typeof data.student_name !== 'string' ||
@@ -34,3 +34,14 @@ export async function gradeSubmission(assignmentId, name, file) {
 }
 
 export const deleteSubmission = (id) => requestApi(`/api/submissions/${id}`, { method: 'DELETE' });
+
+export async function downloadAssignmentCsv(assignmentId) {
+  const response = await fetch(`${API_URL}/api/assignments/${assignmentId}/export.csv`);
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    throw new Error(typeof data?.detail === 'string' ? data.detail : 'The CSV export failed. Please try again.');
+  }
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `assignment-${assignmentId}-results.csv`;
+  return { blob: await response.blob(), filename };
+}
