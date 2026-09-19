@@ -3,6 +3,7 @@ import * as api from './submissions.js';
 import { errorMessage } from './assessment.js';
 import UploadArea from './UploadArea.jsx';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { ConfirmModal, EmptyState, LoadingState, StatusBadge, useToast } from './UI.jsx';
 
 export default function SubmissionsView({ assignment, onBusyChange }) {
   const [items, setItems] = useState([]);
@@ -17,6 +18,8 @@ export default function SubmissionsView({ assignment, onBusyChange }) {
   const [error, setError] = useState('');
   const [formError, setFormError] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const toast = useToast();
   const inFlight = useRef(false);
   const mounted = useRef(false);
   const canGrade = Boolean(assignment.mark_scheme?.has_file || assignment.mark_scheme_text?.trim());
@@ -73,12 +76,14 @@ export default function SubmissionsView({ assignment, onBusyChange }) {
   function open(id) { navigate(`/submissions/${id}`); }
 
   async function remove(id) {
-    if (busy || !window.confirm('Delete this submission? Its assessment will remain in History.')) return;
+    if (busy) return;
     setWorking(id);
     setError('');
     try {
       await api.deleteSubmission(id);
       setItems((previous) => previous.filter((item) => item.id !== id));
+      setPendingDelete(null);
+      toast('Submission deleted.');
     } catch (failure) { setError(errorMessage(failure)); }
     finally { setWorking(null); }
   }
@@ -91,7 +96,7 @@ export default function SubmissionsView({ assignment, onBusyChange }) {
     <>
       {form && <section className="card teacher-form"><h3>Grade Student Work</h3><p className="teacher-meta">Using the mark scheme saved with this assignment.</p>
         <form onSubmit={grade}>
-          <label className="teacher-field">Student name *<input required maxLength={150} disabled={grading} value={name} onChange={(event) => setName(event.target.value)}/></label>
+          <label className="teacher-field"><span>Student name <span className="required-mark" aria-hidden="true">*</span></span><input required maxLength={150} disabled={grading} value={name} onChange={(event) => setName(event.target.value)} placeholder="For example, Alice Johnson"/><small>Used to identify this saved Submission.</small></label>
           <UploadArea title="Upload student work" description="One PDF, PNG, or JPG/JPEG" file={file} onFileChange={setFile} disabled={grading}/>
           {formError && <p className="teacher-error" role="alert">{formError}</p>}
           {grading && <p className="teacher-meta" role="status">Grading student work… Keep this page open.</p>}
@@ -99,16 +104,17 @@ export default function SubmissionsView({ assignment, onBusyChange }) {
             <button type="submit" className="primary-button" disabled={grading || !canGrade || !name.trim() || !file} aria-busy={grading}>{grading ? 'Grading…' : 'Grade Work'}</button></div>
         </form>
       </section>}
-      <div className="card history-card">
+      <div className="card history-card submissions-card">
         {error && <div className="history-error"><p role="alert">{error}</p><button className="secondary-button" disabled={busy || loading} onClick={() => setRefresh((value) => value + 1)}>Retry list</button></div>}
-        {loading ? <p className="history-state" role="status">Loading submissions…</p> : !error && !items.length ? <div className="history-state"><h3>No student submissions yet.</h3><p>Grade one student's work using this assignment's saved criteria.</p></div> :
+        {loading ? <LoadingState label="Loading submissions"/> : !error && !items.length ? <EmptyState title="No submissions yet" description="Grade the first Student Work using this assignment’s saved Mark Scheme." action={!form && canGrade ? <button className="primary-button" type="button" onClick={showForm}>Grade Student Work</button> : null}/> :
           <ul className="history-list">{items.map((item) => <li className="history-item" key={item.id}>
             <div className="history-file"><h3>{item.student_name}</h3><p className="teacher-meta submission-filename">{item.original_filename}</p><time>{item.graded_at ? new Date(item.graded_at).toLocaleString() : 'Not graded'}</time></div>
-            <div className="history-score"><strong>{item.assessment_id == null ? '—' : `${item.total_score} / ${item.max_score}`}</strong><span>{item.percentage == null ? 'Result unavailable' : `${item.percentage}%`}</span><span>{item.assessment_id == null && item.status === 'graded' ? 'Result removed' : item.status === 'graded' ? 'Graded' : item.status}</span></div>
+            <div className="history-score"><strong>{item.assessment_id == null ? '—' : `${item.total_score} / ${item.max_score}`}</strong><span>{item.percentage == null ? 'Result unavailable' : `${item.percentage}%`}</span><StatusBadge tone={item.assessment_id != null && item.status === 'graded' ? 'success' : 'warning'}>{item.assessment_id == null && item.status === 'graded' ? 'Result removed' : item.status === 'graded' ? 'Graded' : item.status}</StatusBadge></div>
             <div className="history-item-actions"><button className="secondary-button" disabled={busy || form} onClick={() => open(item.id)}>{working === item.id ? 'Working…' : 'Open result'}</button>
-              <button className="delete-button" disabled={busy || form} onClick={() => remove(item.id)}>Delete</button></div>
+              <button className="delete-button" disabled={busy || form} onClick={() => setPendingDelete(item)}>Delete</button></div>
           </li>)}</ul>}
       </div>
+      <ConfirmModal open={Boolean(pendingDelete)} title="Delete submission?" description={`This will remove ${pendingDelete?.student_name || 'this student'}’s submission from the assignment. Its assessment will remain in History.`} busy={working != null} onCancel={() => setPendingDelete(null)} onConfirm={() => remove(pendingDelete.id)}/>
     </>
   </section>;
 }

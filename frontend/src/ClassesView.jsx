@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { errorMessage } from './assessment.js';
 import TeacherForm from './TeacherForm.jsx';
 import SubmissionsView from './SubmissionsView.jsx';
+import { Breadcrumbs, ConfirmModal, EmptyState, LoadingState, PageHeader, StatusBadge, useToast } from './UI.jsx';
 
 const date = (value) => new Date(value).toLocaleDateString();
 
@@ -21,6 +22,8 @@ export default function ClassesView({ onGradingChange }) {
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [grading, setGrading] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const toast = useToast();
   const deleteInFlight = useRef(false);
   const busy = loading || deleting || grading;
 
@@ -66,16 +69,14 @@ export default function ClassesView({ onGradingChange }) {
 
   async function remove(kind, id) {
     if (deleteInFlight.current) return;
-    const message = kind === 'class'
-      ? 'Delete this class and all its assignments? Existing assessment history will be kept.'
-      : 'Delete this assignment? Existing assessment history will be kept.';
-    if (!window.confirm(message)) return;
     deleteInFlight.current = true;
     setDeleting(true);
     setError('');
     try {
       if (kind === 'class') await api.deleteClass(id);
       else await api.deleteAssignment(id);
+      setPendingDelete(null);
+      toast(`${kind === 'class' ? 'Class' : 'Assignment'} deleted.`);
       if (kind === 'class' && classId === id) navigate();
       else if (kind === 'assignment' && assignmentId === id) navigate(classId);
       else setRefresh((value) => value + 1);
@@ -89,49 +90,56 @@ export default function ClassesView({ onGradingChange }) {
 
   const detail = classParam != null || assignmentParam != null;
   const title = assignmentId != null ? assignment?.title : detail ? selectedClass?.name : 'Classes';
+  const breadcrumbs = !detail ? [] : assignmentId != null ? [
+    { label: 'Classes', to: '/classes' }, { label: selectedClass?.name || 'Class', to: classId ? `/classes/${classId}` : '/classes' }, { label: assignment?.title || 'Assignment' },
+  ] : [{ label: 'Classes', to: '/classes' }, { label: selectedClass?.name || 'Class' }];
+  const pageDescription = assignmentId != null
+    ? `${selectedClass?.name || 'Class'}${assignment?.description ? ` · ${assignment.description}` : ''}`
+    : detail ? selectedClass?.subject : 'Organize assignments and assessments by class.';
 
   return <div className="history-view classes-view">
-    {detail && <button className="secondary-button" disabled={deleting || grading} onClick={() => assignmentId != null ? navigate(classId) : navigate()}>{assignmentId != null ? 'Back to Class' : 'Back to Classes'}</button>}
-    <div className="history-page-heading teacher-heading">
-      <div><span className="eyebrow">TEACHER WORKSPACE</span><h1>{title || (error ? 'Could not open page' : 'Loading…')}</h1>
-        <p>{detail ? selectedClass?.subject : 'Organize assignments and assessments by class.'}</p>
-      </div>
-      {!form && assignmentId == null && <button className="primary-button" disabled={busy || Boolean(error)} onClick={() => setForm(true)}>+ Create {detail ? 'Assignment' : 'Class'}</button>}
-    </div>
+    <Breadcrumbs items={breadcrumbs}/>
+    <PageHeader eyebrow="TEACHER WORKSPACE" title={title || (error ? 'Could not open page' : 'Loading…')} description={pageDescription}
+      action={!form && assignmentId == null ? <button className="primary-button" disabled={busy || Boolean(error)} onClick={() => setForm(true)}>Create {detail ? 'Assignment' : 'Class'}</button> : null}/>
     {error && <div className="card history-error"><p role="alert">{error}</p><button className="secondary-button" disabled={busy} onClick={() => setRefresh((value) => value + 1)}>Retry</button></div>}
-    {form && <TeacherForm classId={classId} onCancel={() => setForm(false)} onCreated={() => { setForm(false); setRefresh((value) => value + 1); }}/>}
-    {loading ? <div className="card history-state" role="status">Loading…</div> : !error && <>
+    {form && <TeacherForm
+      classId={classId}
+      onCancel={() => setForm(false)}
+      onCreated={() => { setForm(false); toast(`${detail ? 'Assignment' : 'Class'} created.`); setRefresh((value) => value + 1); }}
+    />}
+    {loading ? <LoadingState label={`Loading ${assignmentId != null ? 'assignment' : detail ? 'class' : 'classes'}`}/> : !error && <>
       {detail && selectedClass && <section className="card teacher-details">
         <div className="teacher-heading"><div><h2>{assignmentId != null ? 'Class' : 'Class details'}</h2><p>{selectedClass.name} · {selectedClass.subject}</p></div>
-          {assignmentId == null && <button className="delete-button" disabled={deleting || form} onClick={() => remove('class', classId)}>{deleting ? 'Deleting…' : 'Delete Class'}</button>}
+          {assignmentId == null && <button className="delete-button" disabled={deleting || form} onClick={() => setPendingDelete({ kind: 'class', id: classId, name: selectedClass.name })}>Delete Class</button>}
         </div>
         {selectedClass.description && <p className="teacher-copy">{selectedClass.description}</p>}
       </section>}
       {assignmentId != null && assignment ? <>
         <section className="card teacher-details">
-          <div className="teacher-heading"><h2>Assignment details</h2><button className="delete-button" disabled={deleting || grading} onClick={() => remove('assignment', assignmentId)}>{deleting ? 'Deleting…' : 'Delete Assignment'}</button></div>
+          <div className="teacher-heading"><h2>Assignment details</h2><button className="delete-button" disabled={deleting || grading} onClick={() => setPendingDelete({ kind: 'assignment', id: assignmentId, name: assignment.title })}>Delete Assignment</button></div>
           <p className="teacher-copy">{assignment.description || 'No description added.'}</p>
           <p className="teacher-meta">Maximum marks determined during grading · Created {date(assignment.created_at)}</p>
-          <h3>Mark scheme</h3>
-          {assignment.mark_scheme.has_file && <p className="teacher-copy">{assignment.mark_scheme.original_filename} · {assignment.mark_scheme.type === 'pdf' ? 'PDF' : 'Image'} · Saved</p>}
+          <div className="section-title-row"><h3>Mark Scheme</h3><StatusBadge tone={assignment.mark_scheme.has_file || assignment.mark_scheme.has_text ? 'success' : 'warning'}>{assignment.mark_scheme.has_file || assignment.mark_scheme.has_text ? 'Saved' : 'Missing'}</StatusBadge></div>
+          {assignment.mark_scheme.has_file && <p className="teacher-copy file-summary"><strong>{assignment.mark_scheme.original_filename}</strong><span>{assignment.mark_scheme.type === 'pdf' ? 'PDF document' : 'Image file'}</span></p>}
           {assignment.mark_scheme.has_text && <details><summary className="teacher-meta">Text criteria · Saved — expand to view</summary><p className="teacher-copy criteria-copy">{assignment.mark_scheme_text}</p></details>}
           {!assignment.mark_scheme.has_file && !assignment.mark_scheme.has_text && <p className="teacher-meta">No mark scheme added to this legacy assignment.</p>}
         </section>
         <SubmissionsView key={assignment.id} assignment={assignment} onBusyChange={gradingChanged}/>
       </> : <>
         {detail && <h2 className="teacher-section-title">Assignments</h2>}
-        {!items.length ? <section className="card history-state"><h3>{detail ? 'No assignments yet' : 'No classes yet'}</h3><p>{detail ? 'Create an assignment and paste its grading criteria.' : 'Create your first class to organize assignments.'}</p></section> : <div className="teacher-card-grid">
+        {!items.length ? <section className="card"><EmptyState title={detail ? 'No assignments yet' : 'No classes yet'} description={detail ? 'Create an assignment and add its Mark Scheme.' : 'Create your first class to organize assignments and grading.'} action={<button className="primary-button" type="button" onClick={() => setForm(true)}>Create {detail ? 'Assignment' : 'Class'}</button>}/></section> : <div className="teacher-card-grid">
           {items.map((item) => <article className="card teacher-item" key={item.id}>
             <button className="teacher-card-open" disabled={busy || form} onClick={() => detail ? navigate(classId, item.id) : navigate(item.id)}>
               <span className="teacher-item-title">{detail ? item.title : item.name}</span>
               <span>{detail ? 'Maximum marks determined during grading' : item.subject}</span>
-              <span className="teacher-meta">{detail ? (item.mark_scheme.has_file || item.mark_scheme.has_text ? 'Mark scheme saved' : 'No mark scheme yet') : `${item.assignment_count} assignment${item.assignment_count === 1 ? '' : 's'}`}</span>
+              {detail ? <StatusBadge tone={item.mark_scheme.has_file || item.mark_scheme.has_text ? 'success' : 'warning'}>{item.mark_scheme.has_file || item.mark_scheme.has_text ? 'Mark Scheme saved' : 'Mark Scheme missing'}</StatusBadge> : <span className="teacher-meta">{item.assignment_count} assignment{item.assignment_count === 1 ? '' : 's'}</span>}
               <span className="teacher-meta">Created {date(item.created_at)}</span>
             </button>
-            <div className="teacher-item-actions"><button className="delete-button" disabled={busy || form} onClick={() => remove(detail ? 'assignment' : 'class', item.id)}>{deleting ? 'Deleting…' : 'Delete'}</button></div>
+            <div className="teacher-item-actions"><button className="delete-button" disabled={busy || form} onClick={() => setPendingDelete({ kind: detail ? 'assignment' : 'class', id: item.id, name: detail ? item.title : item.name })}>Delete</button></div>
           </article>)}
         </div>}
       </>}
     </>}
+    <ConfirmModal open={Boolean(pendingDelete)} title={`Delete ${pendingDelete?.kind || 'item'}?`} description={pendingDelete?.kind === 'class' ? `This will delete “${pendingDelete.name}” and its assignments. Existing assessment history will be kept.` : `This will delete “${pendingDelete?.name}”. Existing assessment history will be kept.`} busy={deleting} onCancel={() => setPendingDelete(null)} onConfirm={() => remove(pendingDelete.kind, pendingDelete.id)}/>
   </div>;
 }

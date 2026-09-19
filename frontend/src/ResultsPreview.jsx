@@ -38,7 +38,7 @@ export default function ResultsPreview({ assessment, onReset, saved = false, onB
           <div><dt>Total tokens</dt><dd>{assessment.usage.total_tokens ?? 'Unavailable'}</dd></div>
         </dl>
       </details>}
-      <div className="result-actions">{onBack && <button className="secondary-button" type="button" onClick={onBack}>{backLabel}</button>}<button className="secondary-button" type="button" onClick={onReset}>Check another work</button></div>
+      <div className="result-actions">{onBack && <button className="secondary-button" type="button" onClick={onBack}>{backLabel}</button>}<button className="primary-button" type="button" onClick={onReset}>{saved ? 'Grade Another Work' : 'Check Another Work'}</button></div>
     </section>
   );
 }

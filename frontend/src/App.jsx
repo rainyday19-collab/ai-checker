@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import SavedResultView from './SavedResultView.jsx';
 import UploadArea from './UploadArea.jsx';
@@ -26,6 +26,8 @@ export default function App() {
   const isLoading = requestStatus === 'loading';
   const navigationBusy = isLoading || submissionBusy;
   const canCheck = Boolean(studentWork && (markScheme || criteria.trim()));
+
+  useEffect(() => { window.scrollTo({ top: 0, left: 0 }); }, [pathname]);
 
   function updateFile(setFile, file) {
     setFile(file);
@@ -75,7 +77,7 @@ export default function App() {
     }
   }
 
-  const statusMessage = isLoading ? 'Checking work. Please keep this page open…'
+  const statusMessage = isLoading ? 'Grading student work… Keep this page open.'
     : requestStatus === 'success' ? (assessment?.grading_mode === 'mock' ? 'Demo result saved to History. Uploaded work was not graded.' : 'Assessment complete and saved to History.')
     : requestStatus === 'error' ? requestError
     : canCheck ? 'Ready to check. Successful results are saved to History.'
@@ -86,10 +88,10 @@ export default function App() {
       <header className="site-header"><div className="header-inner">
         <Link className="brand" to="/" onClick={(event) => { if (navigationBusy) event.preventDefault(); }} aria-label="AI Checker home"><span className="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="4" y="3" width="16" height="18" rx="4"/><path d="m8 12 3 3 5-6" strokeLinecap="round" strokeLinejoin="round"/></svg></span><span>AI Checker</span></Link>
         <nav aria-label="Main navigation">
-          <button className={`nav-view ${view === 'dashboard' ? 'active' : ''}`} type="button" disabled={navigationBusy} aria-current={view === 'dashboard' ? 'page' : undefined} onClick={() => navigate('/')}>Dashboard</button>
-          <button className={`nav-view ${view === 'new' ? 'active' : ''}`} type="button" disabled={navigationBusy} aria-current={view === 'new' ? 'page' : undefined} onClick={() => navigate('/new-assessment')}>New Assessment</button>
-          <button className={`nav-view ${view === 'history' ? 'active' : ''}`} type="button" disabled={navigationBusy} aria-current={view === 'history' ? 'page' : undefined} onClick={() => navigate('/history')}>History</button>
-          <button className={`nav-view ${view === 'classes' ? 'active' : ''}`} type="button" disabled={navigationBusy} aria-current={view === 'classes' ? 'page' : undefined} onClick={() => navigate('/classes')}>Classes</button>
+          <Link className={`nav-view ${view === 'dashboard' ? 'active' : ''} ${navigationBusy ? 'disabled' : ''}`} to="/" aria-current={view === 'dashboard' ? 'page' : undefined} onClick={(event) => { if (navigationBusy) event.preventDefault(); }}>Dashboard</Link>
+          <Link className={`nav-view ${view === 'new' ? 'active' : ''} ${navigationBusy ? 'disabled' : ''}`} to="/new-assessment" aria-current={view === 'new' ? 'page' : undefined} onClick={(event) => { if (navigationBusy) event.preventDefault(); }}>New Assessment</Link>
+          <Link className={`nav-view ${view === 'history' ? 'active' : ''} ${navigationBusy ? 'disabled' : ''}`} to="/history" aria-current={view === 'history' ? 'page' : undefined} onClick={(event) => { if (navigationBusy) event.preventDefault(); }}>History</Link>
+          <Link className={`nav-view ${view === 'classes' ? 'active' : ''} ${navigationBusy ? 'disabled' : ''}`} to="/classes" aria-current={view === 'classes' ? 'page' : undefined} onClick={(event) => { if (navigationBusy) event.preventDefault(); }}>Classes</Link>
           <span className="nav-badge"><span aria-hidden="true"/>AI-powered</span>
           <button className="icon-button" type="button" disabled aria-label="GitHub repository (coming soon)" title="GitHub repository coming soon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M9 19c-4 1-4-2-6-2m12 5v-4c0-1 .3-2 1-2.5 3-.4 5-1.5 5-5A4 4 0 0 0 20 7c.3-1 .3-2-.1-3-2 0-3 1-4 1.5a13 13 0 0 0-8 0C7 5 6 4 4 4c-.4 1-.4 2-.1 3A4 4 0 0 0 3 10.5c0 3.5 2 4.6 5 5 .7.5 1 1.5 1 2.5v4" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
         </nav>

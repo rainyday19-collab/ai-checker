@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { requestApi, errorMessage } from './assessment.js';
 import { useNavigate } from 'react-router-dom';
+import { ConfirmModal, EmptyState, LoadingState, PageHeader, useToast } from './UI.jsx';
 
 export default function HistoryView({ onNewAssessment }) {
   const [items, setItems] = useState([]);
@@ -9,6 +10,8 @@ export default function HistoryView({ onNewAssessment }) {
   const [deleting, setDeleting] = useState(null);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const toast = useToast();
   const busy = loading || deleting !== null;
 
   useEffect(() => {
@@ -38,6 +41,8 @@ export default function HistoryView({ onNewAssessment }) {
     try {
       await requestApi(`/api/assessments/${id}`, { method: 'DELETE' });
       setItems((previous) => previous.filter((item) => item.id !== id));
+      setPendingDelete(null);
+      toast('Assessment deleted.');
     } catch (failure) {
       setError(errorMessage(failure));
     } finally {
@@ -47,13 +52,13 @@ export default function HistoryView({ onNewAssessment }) {
 
   return (
     <div className="history-view">
-      <div className="history-page-heading"><div><span className="eyebrow">YOUR ASSESSMENTS</span><h1>Assessment history</h1><p>Revisit saved scores, feedback, and example evidence.</p></div></div>
+      <PageHeader eyebrow="YOUR ASSESSMENTS" title="Assessment history" description="Revisit saved scores, feedback, and supporting evidence." action={<button className="primary-button" type="button" onClick={onNewAssessment}>New Assessment</button>}/>
 
         <section className="card history-card" aria-label="Saved assessments">
           <div className="workspace-heading"><h2>Saved assessments</h2><span className="badge">Local history</span></div>
           {error && <div className="history-error"><p role="alert">{error}</p><button className="secondary-button" type="button" disabled={busy} onClick={() => setRefresh((value) => value + 1)}>Retry history</button></div>}
-          {loading ? <p className="history-state" role="status">Loading assessments…</p> : !error && !items.length ? (
-            <div className="history-state"><h3>No assessments yet</h3><p>Check your first piece of work to save a demo result here.</p><button className="secondary-button" type="button" onClick={onNewAssessment}>New assessment</button></div>
+          {loading ? <LoadingState label="Loading assessments"/> : !error && !items.length ? (
+            <EmptyState title="No assessment history yet" description="Run your first assessment to save its score and feedback here." action={<button className="primary-button" type="button" onClick={onNewAssessment}>New Assessment</button>}/>
           ) : (
             <ul className="history-list">
               {items.map((item) => (
@@ -62,13 +67,14 @@ export default function HistoryView({ onNewAssessment }) {
                   <div className="history-score"><strong>{item.total_score} <span>/ {item.max_score}</span></strong><span>{item.percentage}%</span></div>
                   <div className="history-item-actions">
                     <button className="secondary-button" type="button" disabled={busy} onClick={() => openAssessment(item.id)} aria-label={`Open assessment ${item.id}: ${item.student_filename}`}>Open result</button>
-                    <button className="delete-button" type="button" disabled={busy} onClick={() => deleteAssessment(item.id)} aria-label={`Delete assessment ${item.id}: ${item.student_filename}`}>{deleting === item.id ? 'Deleting…' : 'Delete'}</button>
+                    <button className="delete-button" type="button" disabled={busy} onClick={() => setPendingDelete(item)} aria-label={`Delete assessment ${item.id}: ${item.student_filename}`}>Delete</button>
                   </div>
                 </li>
               ))}
             </ul>
           )}
         </section>
+        <ConfirmModal open={Boolean(pendingDelete)} title="Delete assessment?" description={`This will remove ${pendingDelete?.student_filename || 'this assessment'} from History. This cannot be undone.`} busy={deleting !== null} onCancel={() => setPendingDelete(null)} onConfirm={() => deleteAssessment(pendingDelete.id)}/>
     </div>
   );
 }

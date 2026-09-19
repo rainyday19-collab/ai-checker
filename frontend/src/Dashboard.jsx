@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { requestApi, errorMessage } from './assessment.js';
 import { useNavigate } from 'react-router-dom';
+import { EmptyState, LoadingState, PageHeader, StatusBadge } from './UI.jsx';
 
 const formatNumber = (value) => value === null ? '—' : new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
 
@@ -48,16 +49,16 @@ export default function Dashboard({ onNewAssessment, onHistory }) {
 
   return (
     <div className="history-view dashboard-view">
-      <div className="history-page-heading dashboard-heading"><div><span className="eyebrow">YOUR OVERVIEW</span><h1>Dashboard</h1><p>A concise overview of your saved assessment activity.</p></div><span className="badge example-badge">Saved results</span></div>
+      <PageHeader eyebrow="YOUR OVERVIEW" title="Dashboard" description="Scores and recent assessment activity at a glance." action={<StatusBadge tone="accent">Saved results</StatusBadge>}/>
       <>
         {error && <div className="history-error card"><p role="alert">{error}</p><button className="secondary-button" type="button" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>Retry dashboard</button></div>}
-        {loading ? <div className="card history-state" role="status">Loading dashboard…</div> : statistics && <>
+        {loading ? <LoadingState label="Loading dashboard"/> : statistics && <>
           <div className="statistics-grid">
             {cards.map((card) => <section className="card statistic-card" key={card.label} aria-label={card.label}><h2>{card.label}</h2><strong>{card.value}</strong><p>{card.hint}</p></section>)}
           </div>
           <section className="card history-card" aria-labelledby="recent-title">
             <div className="workspace-heading"><div><h2 id="recent-title">Recent assessments</h2><p className="dashboard-caption">Recent performance · latest five saved results</p></div><button className="secondary-button" type="button" onClick={onHistory}>View all history</button></div>
-            {statistics.total_assessments === 0 ? <div className="history-state"><h3>Your first assessment starts here</h3><p>Create an assessment to see saved results and statistics in your dashboard.</p><button className="primary-button dashboard-create" type="button" onClick={onNewAssessment}>Create your first assessment</button></div> : <ul className="history-list">
+            {statistics.total_assessments === 0 ? <EmptyState title="Your first assessment starts here" description="Run an assessment to see saved results and statistics on your dashboard." action={<button className="primary-button dashboard-create" type="button" onClick={onNewAssessment}>New Assessment</button>}/> : <ul className="history-list">
               {statistics.recent_assessments.map((item) => <li className="history-item" key={item.id}>
                 <div className="history-file"><h3>{item.student_filename}</h3><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time></div>
                 <div className="recent-performance"><div className="history-score"><strong>{item.total_score} <span>/ {item.max_score}</span></strong><span>{item.percentage}%</span></div><div className="performance-bar" aria-hidden="true"><span style={{ width: `${item.percentage}%` }}/></div></div>
