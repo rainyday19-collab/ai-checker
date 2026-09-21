@@ -12,7 +12,7 @@ from starlette.responses import Response
 import database
 from ai_grading import AIConfigurationError, AIGradingError
 from assessment_service import GradingModeError, run_assessment
-from document_processing import process_document
+from document_processing import process_student_work_files
 from grading import AssessmentResult, SavedAssessment, prepare_grading_input
 from mark_scheme_storage import load_document
 
@@ -27,6 +27,8 @@ class SubmissionSummary(BaseModel):
     assignment_id: int
     student_name: str
     original_filename: str
+    original_filenames: list[str]
+    page_count: int = Field(ge=1)
     status: Literal["pending", "graded", "failed"]
     assessment_id: int | None
     created_at: str
@@ -118,7 +120,7 @@ def export_assignment_results(assignment_id: int):
 async def grade_submission(
     assignment_id: int,
     student_name: Annotated[str, Form()],
-    student_work: Annotated[UploadFile, File()],
+    student_work: Annotated[list[UploadFile] | None, File()] = None,
 ):
     try:
         assignment = await run_in_threadpool(database.get_assignment, assignment_id)
@@ -131,14 +133,16 @@ async def grade_submission(
         if not name or len(name) > 150:
             raise HTTPException(422, "Student name is required and must be at most 150 characters.")
         name = StudentInput(student_name=name).student_name
-        document = await process_document(student_work, "Student work")
+        documents = await process_student_work_files(student_work)
         scheme = await run_in_threadpool(load_document, assignment)
-        prepared = prepare_grading_input(document, scheme, criteria or None)
+        prepared = prepare_grading_input(documents, scheme, criteria or None)
         assessment = await run_assessment(prepared)
         # Validate again before either database row is written.
         result = AssessmentResult.model_validate(assessment.result.model_dump(exclude={"percentage"}))
         assessment = assessment.model_copy(update={"result": result})
-        submission_id = await run_in_threadpool(database.save_submission, assignment_id, name, document.filename, assessment)
+        submission_id = await run_in_threadpool(
+            database.save_submission, assignment_id, name, [document.filename for document in documents], assessment,
+        )
         if submission_id is None:
             raise HTTPException(409, "The assignment was deleted while grading. No result was saved.")
         return await run_in_threadpool(database.get_submission, submission_id)
@@ -149,7 +153,8 @@ async def grade_submission(
     except ValidationError as error:
         raise HTTPException(502, "The grader returned an invalid assessment. No result was saved.") from error
     finally:
-        await student_work.close()
+        for upload in student_work or []:
+            await upload.close()
 
 
 @router.get("/submissions/{submission_id}", response_model=SubmissionDetail)

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+import re
 import warnings
 
 from fastapi import HTTPException, UploadFile
@@ -9,6 +10,8 @@ from pypdf import PdfReader
 from starlette.concurrency import run_in_threadpool
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
+MAX_STUDENT_IMAGE_FILES = 10
+MAX_STUDENT_IMAGES_BYTES = 30 * 1024 * 1024
 MAX_PDF_PAGES = 50
 MAX_IMAGE_PIXELS = 20_000_000
 MIN_PAGE_TEXT_CHARACTERS = 20
@@ -18,6 +21,20 @@ SUPPORTED_TYPES = {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
 }
+
+
+def safe_filename(filename: str | None) -> str:
+    """Keep display metadata only: no paths, control characters, or unbounded names."""
+    name = Path((filename or "").replace("\\", "/")).name
+    name = re.sub(r"[\x00-\x1f\x7f]", "", name).strip()
+    return (name or "upload")[:255]
+
+
+def expected_upload_type(file: UploadFile, field: str) -> str:
+    expected_type = SUPPORTED_TYPES.get(Path(safe_filename(file.filename)).suffix.lower())
+    if not expected_type or file.content_type not in (None, "", "application/octet-stream", expected_type):
+        raise HTTPException(415, f"{field} must be a PDF, PNG, or JPG/JPEG file.")
+    return expected_type
 
 
 @dataclass
@@ -96,13 +113,39 @@ def extract_content(data: bytes, filename: str, content_type: str, field: str) -
 
 
 async def process_document(file: UploadFile, field: str) -> ProcessedDocument:
-    filename = file.filename or ""
-    expected_type = SUPPORTED_TYPES.get(Path(filename).suffix.lower())
-    if not expected_type or file.content_type not in (None, "", "application/octet-stream", expected_type):
-        raise HTTPException(415, f"{field} must be a PDF, PNG, or JPG/JPEG file.")
+    filename = safe_filename(file.filename)
+    expected_type = expected_upload_type(file, field)
     data = await file.read(MAX_FILE_BYTES + 1)
     if len(data) > MAX_FILE_BYTES:
         raise HTTPException(413, f"{field} must be 10 MB or smaller.")
     if not data:
         raise HTTPException(422, f"{field} file is empty.")
     return await run_in_threadpool(extract_content, data, filename, expected_type, field)
+
+
+async def process_student_work_files(files: list[UploadFile] | None) -> list[ProcessedDocument]:
+    """Validate one PDF or an ordered collection of image pages, then decode each file."""
+    uploads = list(files or [])
+    if not uploads:
+        raise HTTPException(422, "Upload one PDF or 1 to 10 PNG/JPG images as student work.")
+
+    content_types = [expected_upload_type(upload, "Student work") for upload in uploads]
+    pdf_count = content_types.count("application/pdf")
+    if pdf_count:
+        if len(uploads) > 1:
+            detail = "Upload only one PDF; multiple PDFs are not supported." if pdf_count == len(uploads) else \
+                "Do not mix a PDF with image pages in one submission."
+            raise HTTPException(422, detail)
+    if len(uploads) > MAX_STUDENT_IMAGE_FILES:
+        raise HTTPException(413, f"Student work may contain at most {MAX_STUDENT_IMAGE_FILES} image pages.")
+
+    documents: list[ProcessedDocument] = []
+    combined_bytes = 0
+    for index, upload in enumerate(uploads, start=1):
+        document = await process_document(upload, f"Student work page {index}" if len(uploads) > 1 else "Student work")
+        documents.append(document)
+        if document.type == "image":
+            combined_bytes += len(document.original_bytes)
+            if combined_bytes > MAX_STUDENT_IMAGES_BYTES:
+                raise HTTPException(413, "Student work image pages must total 30 MB or smaller.")
+    return documents

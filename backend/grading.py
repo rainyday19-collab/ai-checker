@@ -101,6 +101,11 @@ class GradingInput:
     student_work: PreparedContent
     mark_scheme: PreparedContent | None
     criteria_text: str | None
+    student_work_pages: tuple[PreparedContent, ...] = ()
+
+    @property
+    def ordered_student_work(self) -> tuple[PreparedContent, ...]:
+        return self.student_work_pages or (self.student_work,)
 
 
 def prepare_document(document: ProcessedDocument) -> PreparedContent:
@@ -122,15 +127,20 @@ def prepare_document(document: ProcessedDocument) -> PreparedContent:
 
 
 def prepare_grading_input(
-    student_work: ProcessedDocument,
+    student_work: ProcessedDocument | list[ProcessedDocument],
     mark_scheme: ProcessedDocument | None = None,
     criteria_text: str | None = None,
 ) -> GradingInput:
     criteria = (criteria_text or "").strip() or None
     if mark_scheme is None and criteria is None:
         raise ValueError("Provide a mark scheme or non-empty grading criteria.")
+    documents = student_work if isinstance(student_work, list) else [student_work]
+    if not documents:
+        raise ValueError("Student work requires at least one document.")
+    prepared_pages = tuple(prepare_document(document) for document in documents)
     return GradingInput(
-        student_work=prepare_document(student_work),
+        student_work=prepared_pages[0],
         mark_scheme=prepare_document(mark_scheme) if mark_scheme else None,
         criteria_text=criteria,
+        student_work_pages=prepared_pages,
     )

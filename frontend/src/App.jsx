@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import SavedResultView from './SavedResultView.jsx';
 import UploadArea from './UploadArea.jsx';
+import StudentWorkUpload from './StudentWorkUpload.jsx';
 import ResultsPreview from './ResultsPreview.jsx';
 import HistoryView from './HistoryView.jsx';
 import Dashboard from './Dashboard.jsx';
@@ -15,7 +16,7 @@ export default function App() {
     : /^\/(classes|assignments|submissions)(\/|$)/.test(pathname) ? 'classes' : pathname === '/new-assessment' ? 'new' : '';
 
   const [submissionBusy, setSubmissionBusy] = useState(false);
-  const [studentWork, setStudentWork] = useState(null);
+  const [studentWork, setStudentWork] = useState([]);
   const [markScheme, setMarkScheme] = useState(null);
   const [criteria, setCriteria] = useState('');
   const [requestStatus, setRequestStatus] = useState('idle');
@@ -25,7 +26,7 @@ export default function App() {
   const requestInFlight = useRef(false);
   const isLoading = requestStatus === 'loading';
   const navigationBusy = isLoading || submissionBusy;
-  const canCheck = Boolean(studentWork && (markScheme || criteria.trim()));
+  const canCheck = Boolean(studentWork.length && (markScheme || criteria.trim()));
 
   useEffect(() => { window.scrollTo({ top: 0, left: 0 }); }, [pathname]);
 
@@ -38,7 +39,7 @@ export default function App() {
 
   function resetAssessment() {
     navigate('/new-assessment');
-    setStudentWork(null);
+    setStudentWork([]);
     setMarkScheme(null);
     setCriteria('');
     setAssessment(null);
@@ -54,7 +55,7 @@ export default function App() {
     // A synchronous guard also blocks clicks before React renders the loading state.
     requestInFlight.current = true;
     const formData = new FormData();
-    formData.append('student_work', studentWork);
+    studentWork.forEach((file) => formData.append('student_work', file));
     if (markScheme) formData.append('mark_scheme', markScheme);
     if (criteria.trim()) formData.append('criteria_text', criteria.trim());
     setRequestStatus('loading');
@@ -118,7 +119,7 @@ export default function App() {
           <div className="input-grid" key={resetKey}>
             <section className="input-panel" aria-labelledby="work-title">
               <div className="section-heading"><span className="step">01</span><div><h3 id="work-title">Student work</h3><p>The completed answers you want to review.</p></div></div>
-              <UploadArea title="Drop student work here" description="An image or PDF of the completed work" file={studentWork} disabled={isLoading} onFileChange={(file) => updateFile(setStudentWork, file)}/>
+              <StudentWorkUpload files={studentWork} disabled={isLoading} onFilesChange={(files) => updateFile(setStudentWork, files)}/>
               <p className="input-hint">Clear, readable pages help produce better feedback.</p>
             </section>
             <section className="input-panel" aria-labelledby="scheme-title">

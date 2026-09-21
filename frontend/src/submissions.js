@@ -2,7 +2,8 @@ import { API_URL, requestApi, validateAssessmentResponse } from './assessment.js
 
 function validateDetail(data) {
   if (!data || !Number.isInteger(data.id) || typeof data.student_name !== 'string' ||
-      typeof data.original_filename !== 'string' || !Number.isInteger(data.assignment_id)) {
+      typeof data.original_filename !== 'string' || !Array.isArray(data.original_filenames) ||
+      !Number.isInteger(data.page_count) || data.page_count < 1 || !Number.isInteger(data.assignment_id)) {
     throw new Error('The backend returned an invalid submission. Please try again.');
   }
   if (data.assessment) {
@@ -16,7 +17,8 @@ export async function getSubmissions(assignmentId, signal) {
   const data = await requestApi(`/api/assignments/${assignmentId}/submissions`, { signal });
   if (!Array.isArray(data) || !data.every((item) => item && Number.isInteger(item.id) &&
       item.assignment_id === assignmentId && typeof item.student_name === 'string' &&
-      typeof item.original_filename === 'string' && ['pending', 'graded', 'failed'].includes(item.status))) {
+      typeof item.original_filename === 'string' && Array.isArray(item.original_filenames) &&
+      Number.isInteger(item.page_count) && item.page_count >= 1 && ['pending', 'graded', 'failed'].includes(item.status))) {
     throw new Error('The backend returned an invalid submissions list. Please try again.');
   }
   return data;
@@ -26,10 +28,10 @@ export async function getSubmission(id, signal) {
   return validateDetail(await requestApi(`/api/submissions/${id}`, { signal }));
 }
 
-export async function gradeSubmission(assignmentId, name, file) {
+export async function gradeSubmission(assignmentId, name, files) {
   const body = new FormData();
   body.append('student_name', name.trim());
-  body.append('student_work', file);
+  files.forEach((file) => body.append('student_work', file));
   return validateDetail(await requestApi(`/api/assignments/${assignmentId}/submissions/grade`, { method: 'POST', body }));
 }
 

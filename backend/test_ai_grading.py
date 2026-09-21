@@ -82,6 +82,19 @@ class InputAndEndpointTests(unittest.TestCase):
                 self.assertEqual(base64.b64decode(url.split(",", 1)[1]), b"binary fixture")
             self.assertIn("MANUAL GRADING CRITERIA", parts[-1]["text"])
 
+    def test_multiple_images_are_ordered_in_one_model_input(self):
+        pages = tuple(PreparedContent("image", f"page-{index}.png", "image/png", original_bytes=f"page {index}".encode())
+                      for index in range(1, 4))
+        prepared = GradingInput(pages[0], None, "Award 4 marks.", pages)
+        model_input = build_model_input(prepared)
+        self.assertEqual(len(model_input), 1)
+        parts = model_input[0]["content"]
+        self.assertEqual(sum(part["type"] == "input_image" for part in parts), 3)
+        labels = [part["text"] for part in parts if part["type"] == "input_text"]
+        self.assertTrue(any("Grade all pages together as one submission" in label for label in labels))
+        for index in range(1, 4):
+            self.assertTrue(any(f"PAGE {index} OF 3" in label for label in labels))
+
     def test_endpoints_work_without_key_and_never_create_ai_client(self):
         image = BytesIO()
         Image.new("RGB", (10, 10), "white").save(image, format="PNG")

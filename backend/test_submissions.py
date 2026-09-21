@@ -50,6 +50,10 @@ class SubmissionTests(unittest.TestCase):
             files={"student_work": (filename, self.image if content is None else content, mime)},
             data={"student_name": name, **(extra or {})})
 
+    def grade_files(self, uploads, assignment=None, name="Alice"):
+        return self.client.post(f"/api/assignments/{assignment or self.assignment}/submissions/grade",
+            files=[("student_work", upload) for upload in uploads], data={"student_name": name})
+
     def assert_no_saved_result(self):
         self.assertEqual(self.client.get("/api/assessments").json(), [])
         self.assertEqual(self.client.get(f"/api/assignments/{self.assignment}/submissions").json(), [])
@@ -108,6 +112,58 @@ class SubmissionTests(unittest.TestCase):
             (b"text", "bad.txt", "text/plain", 415), (b"broken", "bad.pdf", "application/pdf", 422),
             (b"x" * (10 * 1024 * 1024 + 1), "large.png", "image/png", 413)]:
             self.assertEqual(self.grade(content=content, filename=filename, mime=mime).status_code, expected)
+        self.assert_no_saved_result()
+
+    def test_ordered_multi_image_mock_grade_is_one_submission(self):
+        uploads = [("page-2.png", self.image, "image/png"), ("page-1.png", self.image, "image/png"),
+                   ("page-3.png", self.image, "image/png")]
+        with patch("assessment_service.mock_grade_assessment", wraps=mock_grade_assessment) as grader:
+            response = self.grade_files(uploads)
+        self.assertEqual(response.status_code, 201)
+        saved = response.json()
+        self.assertEqual(saved["original_filenames"], ["page-2.png", "page-1.png", "page-3.png"])
+        self.assertEqual(saved["page_count"], 3)
+        grader.assert_awaited_once()
+        self.assertEqual([page.filename for page in grader.call_args.args[0].ordered_student_work],
+                         ["page-2.png", "page-1.png", "page-3.png"])
+        self.assertEqual(len(self.client.get("/api/assessments").json()), 1)
+        self.assertEqual(len(self.client.get(f"/api/assignments/{self.assignment}/submissions").json()), 1)
+        with database.connection() as connection:
+            row = dict(connection.execute("SELECT * FROM submissions").fetchone())
+            self.assertFalse(any(isinstance(value, bytes) for value in row.values()))
+
+    def test_one_pdf_succeeds_in_mock_mode(self):
+        writer = PdfWriter()
+        writer.add_blank_page(width=100, height=100)
+        content = BytesIO()
+        writer.write(content)
+        response = self.grade_files([("work.pdf", content.getvalue(), "application/pdf")])
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["page_count"], 1)
+
+    def test_invalid_file_combinations_and_count(self):
+        writer = PdfWriter()
+        writer.add_blank_page(width=100, height=100)
+        content = BytesIO()
+        writer.write(content)
+        pdf = content.getvalue()
+        cases = [
+            ([("work.pdf", pdf, "application/pdf"), ("page.png", self.image, "image/png")], 422),
+            ([("one.pdf", pdf, "application/pdf"), ("two.pdf", pdf, "application/pdf")], 422),
+            ([(f"page-{index}.png", self.image, "image/png") for index in range(11)], 413),
+            ([("work.txt", b"answer", "text/plain")], 415),
+        ]
+        for uploads, status in cases:
+            with self.subTest(status=status, files=len(uploads)):
+                self.assertEqual(self.grade_files(uploads).status_code, status)
+        self.assert_no_saved_result()
+
+    def test_combined_image_size_limit(self):
+        # Valid decoders ignore trailing bytes; this exercises combined upload accounting without huge pixel fixtures.
+        padded = self.image + b"x" * (8 * 1024 * 1024)
+        response = self.grade_files([(f"page-{index}.png", padded, "image/png") for index in range(4)])
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("total 30 MB", response.json()["detail"])
         self.assert_no_saved_result()
 
     def test_grading_failure_not_saved(self):
@@ -198,14 +254,22 @@ class SubmissionTests(unittest.TestCase):
             self.assertEqual(configuration["max_retries"], 0)
             return AsyncOpenAI(**configuration, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
         with patch.dict("os.environ", {"GRADING_MODE": "openai", "OPENAI_API_KEY": "test-key-not-real", "OPENAI_MODEL": "test-model"}), patch("ai_grading.AsyncOpenAI", side_effect=create_client):
-            response = self.grade()
+            response = self.grade_files([
+                ("first.png", self.image, "image/png"),
+                ("second.png", self.image, "image/png"),
+                ("third.png", self.image, "image/png"),
+            ])
             self.assertEqual(response.status_code, 201)
             saved = response.json()
             self.assertEqual(len(requests), 1)
             self.assertEqual(saved["assessment"]["usage"]["total_tokens"], 150)
             self.assertEqual(self.client.get(f'/api/submissions/{saved["id"]}').json()["assessment"]["usage"], saved["assessment"]["usage"])
             parts = requests[0]["input"][0]["content"]
-            self.assertEqual(sum(part["type"] == "input_image" for part in parts), 1)
+            self.assertEqual(sum(part["type"] == "input_image" for part in parts), 3)
+            page_labels = [part.get("text", "") for part in parts]
+            self.assertTrue(any("PAGE 1 OF 3 — first.png" in label for label in page_labels))
+            self.assertTrue(any("PAGE 2 OF 3 — second.png" in label for label in page_labels))
+            self.assertTrue(any("PAGE 3 OF 3 — third.png" in label for label in page_labels))
             self.assertTrue(any(self.criteria in part.get("text", "") for part in parts))
             mode["fail"] = True
             failed = self.grade(name="Bob")

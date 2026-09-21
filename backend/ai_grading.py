@@ -68,7 +68,15 @@ def content_parts(document: PreparedContent, label: str) -> list[ResponseInputCo
 def build_model_input(prepared: GradingInput) -> ResponseInputParam:
     if prepared.mark_scheme is None and not (prepared.criteria_text or "").strip():
         raise ValueError("A mark scheme or manual criteria is required.")
-    parts = content_parts(prepared.student_work, "STUDENT WORK")
+    pages = prepared.ordered_student_work
+    if len(pages) == 1:
+        parts = content_parts(pages[0], "STUDENT WORK")
+    else:
+        parts = [{"type": "input_text", "text": (
+            f"STUDENT WORK — {len(pages)} ordered image pages. Grade all pages together as one submission."
+        )}]
+        for index, page in enumerate(pages, start=1):
+            parts.extend(content_parts(page, f"STUDENT WORK — PAGE {index} OF {len(pages)} — {page.filename}"))
     if prepared.mark_scheme:
         parts.extend(content_parts(prepared.mark_scheme, "MARK SCHEME"))
     if prepared.criteria_text:
@@ -81,7 +89,7 @@ async def grade_assessment(prepared: GradingInput, *, allow_api_request: bool = 
     if not allow_api_request:
         raise AIConfigurationError("AI requests are disabled. Explicit opt-in is required to enable grading.")
     api_key, model = get_configuration()
-    documents = [prepared.student_work, prepared.mark_scheme]
+    documents = [*prepared.ordered_student_work, prepared.mark_scheme]
     if any(document and document.kind == "pdf_visual" for document in documents):
         raise AIGradingError("Scanned or low-text PDFs are not supported for AI grading yet. Upload readable PNG/JPG pages or a PDF with selectable text.", 422)
     model_input = build_model_input(prepared)

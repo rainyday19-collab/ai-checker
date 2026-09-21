@@ -76,6 +76,11 @@ def initialize_database():
             )
         """)
         database.execute("CREATE INDEX IF NOT EXISTS submissions_assignment_id ON submissions(assignment_id)")
+        submission_columns = {row["name"] for row in database.execute("PRAGMA table_info(submissions)")}
+        if "original_filenames_json" not in submission_columns:
+            database.execute("ALTER TABLE submissions ADD COLUMN original_filenames_json TEXT")
+        if "page_count" not in submission_columns:
+            database.execute("ALTER TABLE submissions ADD COLUMN page_count INTEGER NOT NULL DEFAULT 1")
 
 
 def save_assessment(assessment: AssessmentResponse, student_filename: str, mark_scheme_filename: str | None, used_manual_criteria: bool) -> int:
@@ -231,33 +236,51 @@ def delete_assignment(assignment_id: int) -> bool:
 
 SUBMISSION_QUERY = """
     SELECT submissions.id, assignment_id, student_name, original_filename, status,
-           assessment_id, submissions.created_at, graded_at,
+           original_filenames_json, page_count, assessment_id, submissions.created_at, graded_at,
            assessments.total_score, assessments.max_score, assessments.percentage
     FROM submissions LEFT JOIN assessments ON assessments.id = submissions.assessment_id
 """
 
 
-def save_submission(assignment_id: int, student_name: str, filename: str, assessment: AssessmentResponse) -> int | None:
+def save_submission(assignment_id: int, student_name: str, filenames: list[str] | str, assessment: AssessmentResponse) -> int | None:
     """Success-only persistence. Both inserts roll back if either fails."""
+    filenames = [filenames] if isinstance(filenames, str) else filenames
     with connection() as database:
         if database.execute("SELECT id FROM assignments WHERE id = ?", (assignment_id,)).fetchone() is None:
             return None
-        assessment_id = insert_assessment(database, assessment, filename, None, True)
+        if not filenames:
+            raise ValueError("A submission requires at least one filename.")
+        history_filename = filenames[0] if len(filenames) == 1 else f"{len(filenames)} image pages"
+        assessment_id = insert_assessment(database, assessment, history_filename, None, True)
         now = datetime.now(timezone.utc).isoformat()
         cursor = database.execute("""
             INSERT INTO submissions (assignment_id, student_name, original_filename, status,
-                                     assessment_id, created_at, graded_at, usage_json)
-            VALUES (?, ?, ?, 'graded', ?, ?, ?, ?)
-        """, (assignment_id, student_name, filename, assessment_id, now, now,
+                                     original_filenames_json, page_count, assessment_id, created_at, graded_at, usage_json)
+            VALUES (?, ?, ?, 'graded', ?, ?, ?, ?, ?, ?)
+        """, (assignment_id, student_name, filenames[0], json.dumps(filenames), len(filenames), assessment_id, now, now,
               assessment.usage.model_dump_json() if assessment.usage else None))
         return cursor.lastrowid
+
+
+def submission_values(row) -> dict:
+    values = dict(row)
+    encoded = values.pop("original_filenames_json", None)
+    try:
+        filenames = json.loads(encoded) if encoded else [values["original_filename"]]
+    except (json.JSONDecodeError, TypeError):
+        filenames = [values["original_filename"]]
+    if not isinstance(filenames, list) or not filenames or not all(isinstance(name, str) for name in filenames):
+        filenames = [values["original_filename"]]
+    values["original_filenames"] = filenames
+    values["page_count"] = len(filenames)
+    return values
 
 
 def list_submissions(assignment_id: int) -> list[dict]:
     with connection() as database:
         rows = database.execute(SUBMISSION_QUERY +
             " WHERE assignment_id = ? ORDER BY submissions.created_at DESC, submissions.id DESC", (assignment_id,)).fetchall()
-        return [dict(row) for row in rows]
+        return [submission_values(row) for row in rows]
 
 
 def get_submission(submission_id: int) -> dict | None:
@@ -266,7 +289,7 @@ def get_submission(submission_id: int) -> dict | None:
         if row is None:
             return None
         usage = database.execute("SELECT usage_json FROM submissions WHERE id = ?", (submission_id,)).fetchone()[0]
-    values = dict(row)
+    values = submission_values(row)
     assessment = get_assessment(values["assessment_id"]) if values["assessment_id"] else None
     if assessment and usage:
         assessment = assessment.model_copy(update={"usage": AIUsage.model_validate_json(usage)})

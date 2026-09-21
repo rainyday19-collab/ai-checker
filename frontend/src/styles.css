@@ -65,6 +65,21 @@ h3 { font-size: 14px; margin: 0; font-weight: 650; }
 .remove-file { border: 1px solid var(--border); border-radius: 5px; padding: 5px 10px; margin: 0 0 16px; background: white; color: var(--muted); font-size: 10px; cursor: pointer; transition: border-color .18s, color .18s; }
 .remove-file:hover { color: #a12637; border-color: #d7a6ae; }
 .upload-error { margin: 9px 0 0; padding: 8px 10px; background: #fff3f3; border: 1px solid #f0d1d5; border-radius: 5px; color: #a12637; font-size: 11px; line-height: 1.6; }
+.multi-upload-area { min-height: 190px; }
+.multi-upload-area .upload-icon { margin-bottom: 12px; }
+.multi-upload-area .upload-description { margin-bottom: 12px; }
+.upload-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; }
+.upload-actions .secondary-button { min-height: 42px; }
+.upload-page-list { display: grid; gap: 9px; margin: 12px 0 0; padding: 0; list-style: none; counter-reset: none; }
+.upload-page-list li { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.upload-page-details { min-width: 0; display: grid; gap: 4px; text-align: left; }
+.upload-page-details strong { color: #302963; font-size: 11px; }
+.upload-page-details span { overflow-wrap: anywhere; font-size: 11px; font-weight: 600; }
+.upload-page-details small { color: var(--muted); font-size: 9px; }
+.upload-page-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex-shrink: 0; }
+.upload-page-actions button { min-height: 36px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; background: white; color: var(--muted); font-size: 10px; cursor: pointer; }
+.upload-page-actions button:not(:disabled):hover { border-color: #8d85d9; color: var(--accent); }
+.upload-page-actions button:disabled { opacity: .5; cursor: not-allowed; }
 .input-hint { font-size: 10px; color: var(--muted); line-height: 1.7; margin: 14px 0 0; }
 .or-divider { display: flex; align-items: center; gap: 11px; color: var(--muted); font-size: 9px; letter-spacing: 1px; margin: 18px 0; }
 .or-divider::before, .or-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
@@ -363,6 +378,11 @@ nav[aria-label="Main navigation"] { min-width: 0; }
   .teacher-form, .teacher-details { padding: 20px; }
   .teacher-actions { flex-direction: column-reverse; }
   .teacher-actions button { width: 100%; }
+  .upload-actions { width: 100%; padding: 0 14px; }
+  .upload-actions button { flex: 1 1 120px; }
+  .upload-page-list li { align-items: stretch; flex-direction: column; }
+  .upload-page-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .upload-page-actions button { min-height: 42px; padding: 7px 5px; }
   .result-context { grid-template-columns: 1fr; }
   .result-context > div + div { border-left: 0; border-top: 1px solid var(--border); }
   .score-summary { margin-left: 16px; margin-right: 16px; }
