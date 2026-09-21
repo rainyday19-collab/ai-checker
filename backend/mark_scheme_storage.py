@@ -17,7 +17,7 @@ def storage_directory() -> Path:
 
 
 def managed_path(key: str) -> Path:
-    if not re.fullmatch(r"[0-9a-f]{32}\.(pdf|png|jpg|jpeg)", key):
+    if not re.fullmatch(r"[0-9a-f]{32}\.(pdf|docx|png|jpg|jpeg)", key):
         raise HTTPException(503, "The saved mark scheme is unavailable. Create a new assignment with a valid scheme.")
     directory = storage_directory().resolve()
     path = directory / key

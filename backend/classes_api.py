@@ -105,7 +105,7 @@ async def create_assignment(class_id: int, request: Request):
             data = dict(form)
             upload = data.pop("mark_scheme_file", None)
             if upload is not None and not isinstance(upload, UploadFile):
-                raise HTTPException(422, "Mark scheme file must be an uploaded PDF or image.")
+                raise HTTPException(422, "Mark scheme file must be an uploaded PDF, DOCX, or image.")
             values = AssignmentCreate.model_validate(data)
         if not (values.mark_scheme_text or "").strip() and upload is None:
             raise HTTPException(422, "Upload a mark scheme file or paste non-empty grading criteria.")

@@ -120,7 +120,7 @@ export default function ClassesView({ onGradingChange }) {
           <p className="teacher-copy">{assignment.description || 'No description added.'}</p>
           <p className="teacher-meta">Maximum marks determined during grading · Created {date(assignment.created_at)}</p>
           <div className="section-title-row"><h3>Mark Scheme</h3><StatusBadge tone={assignment.mark_scheme.has_file || assignment.mark_scheme.has_text ? 'success' : 'warning'}>{assignment.mark_scheme.has_file || assignment.mark_scheme.has_text ? 'Saved' : 'Missing'}</StatusBadge></div>
-          {assignment.mark_scheme.has_file && <p className="teacher-copy file-summary"><strong>{assignment.mark_scheme.original_filename}</strong><span>{assignment.mark_scheme.type === 'pdf' ? 'PDF document' : 'Image file'}</span></p>}
+          {assignment.mark_scheme.has_file && <p className="teacher-copy file-summary"><strong>{assignment.mark_scheme.original_filename}</strong><span>{assignment.mark_scheme.type === 'pdf' ? 'PDF document' : assignment.mark_scheme.type === 'docx' ? 'Word document' : 'Image file'}</span></p>}
           {assignment.mark_scheme.has_text && <details><summary className="teacher-meta">Text criteria · Saved — expand to view</summary><p className="teacher-copy criteria-copy">{assignment.mark_scheme_text}</p></details>}
           {!assignment.mark_scheme.has_file && !assignment.mark_scheme.has_text && <p className="teacher-meta">No mark scheme added to this legacy assignment.</p>}
         </section>

@@ -5,6 +5,7 @@ const supportedTypes = {
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 };
 
 function readableSize(bytes) {
@@ -31,7 +32,7 @@ export default function UploadArea({ title, description, file, onFileChange, dis
     const extension = selected.name.split('.').pop().toLowerCase();
     // File metadata is a frontend check; content validation belongs on the backend later.
     if (!supportedTypes[extension] || (selected.type && selected.type !== supportedTypes[extension])) {
-      setError('Unsupported file. Please choose a PDF, PNG, or JPG/JPEG.');
+      setError('Unsupported file. Please choose a PDF, DOCX, PNG, or JPG/JPEG.');
       return;
     }
     setError('');
@@ -51,7 +52,7 @@ export default function UploadArea({ title, description, file, onFileChange, dis
         type="file"
         disabled={disabled}
         hidden
-        accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+        accept=".pdf,.docx,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg"
         onChange={(event) => {
           selectFile(event.target.files);
           // Reset the picker so selecting the same file again triggers onChange.
@@ -92,7 +93,7 @@ export default function UploadArea({ title, description, file, onFileChange, dis
           <span className="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 16V4m-4 4 4-4 4 4M4 15v5h16v-5" strokeLinecap="round" strokeLinejoin="round"/></svg></span>
           <span className="upload-title">{file ? file.name : title}</span>
           <span className="upload-description">{file ? `${file.name.split('.').pop().toUpperCase()} · ${readableSize(file.size)}` : description}</span>
-          {!file && <span className="format-badges"><span>PDF</span><span>PNG</span><span>JPG</span></span>}
+          {!file && <span className="format-badges"><span>PDF</span><span>DOCX</span><span>PNG</span><span>JPG</span></span>}
           <span className="upload-preview">{file ? 'Click to change file, or drop a replacement' : 'Drag and drop, or click to browse'}</span>
         </button>
         {file && <button className="remove-file" type="button" disabled={disabled} onClick={removeFile} aria-label={`Remove ${file.name}`}>Remove file</button>}

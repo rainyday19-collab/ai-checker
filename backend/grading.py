@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-from document_processing import ProcessedDocument
+from document_processing import EmbeddedImage, ProcessedDocument
 
 
 class QuestionResult(BaseModel):
@@ -89,11 +89,12 @@ class AssessmentStatistics(BaseModel):
 
 @dataclass(frozen=True)
 class PreparedContent:
-    kind: Literal["text", "image", "pdf_visual"]
+    kind: Literal["text", "image", "pdf_visual", "docx"]
     filename: str
     content_type: str
     text: str = ""
     original_bytes: bytes | None = field(default=None, repr=False)
+    embedded_images: tuple[EmbeddedImage, ...] = field(default=(), repr=False)
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,13 @@ class GradingInput:
 
 def prepare_document(document: ProcessedDocument) -> PreparedContent:
     text = document.text.strip()
+    if document.type == "docx":
+        if not text and not document.embedded_images:
+            raise ValueError("DOCX inputs require extracted content.")
+        return PreparedContent(
+            kind="docx", filename=document.filename, content_type=document.content_type,
+            text=text, embedded_images=document.embedded_images,
+        )
     if document.type == "image" or document.requires_visual_processing:
         if not document.original_bytes:
             raise ValueError("Visual inputs require the original file bytes.")

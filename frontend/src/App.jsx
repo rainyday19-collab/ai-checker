@@ -124,7 +124,7 @@ export default function App() {
             </section>
             <section className="input-panel" aria-labelledby="scheme-title">
               <div className="section-heading"><span className="step">02</span><div><h3 id="scheme-title">Mark scheme</h3><p>Set the standard for a fair assessment.</p></div></div>
-              <UploadArea title="Drop your mark scheme here" description="An image or PDF of your grading criteria" file={markScheme} disabled={isLoading} onFileChange={(file) => updateFile(setMarkScheme, file)}/>
+              <UploadArea title="Drop your mark scheme here" description="A PDF, DOCX, or image of your grading criteria" file={markScheme} disabled={isLoading} onFileChange={(file) => updateFile(setMarkScheme, file)}/>
               <div className="or-divider"><span>OR</span></div>
               <div className="label-row"><label htmlFor="criteria">Paste grading criteria</label><span>Optional if uploading</span></div>
               <textarea id="criteria" rows="4" disabled={isLoading} value={criteria} onChange={(event) => { setCriteria(event.target.value); setRequestStatus('idle'); setRequestError(''); setAssessment(null); }} placeholder="Enter the expected answers, marks available, and any criteria for awarding partial credit…"/>

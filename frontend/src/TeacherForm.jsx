@@ -63,7 +63,7 @@ export default function TeacherForm({ classId, onCreated, onCancel }) {
         <label className="teacher-field"><span>Description <span className="optional-label">Optional</span></span><textarea name="description" value={values.description} onChange={update} rows="3" maxLength={5000} placeholder={`Add context about this ${label.toLowerCase()}…`}/><small>Keep this concise; teachers will see it near the page title.</small></label>
         {assignment && <>
           <h3>Mark Scheme <span className="required-mark" aria-hidden="true">*</span></h3>
-          <UploadArea title="Upload assignment mark scheme" description="PDF, PNG, or JPG/JPEG — saved for future submissions" file={schemeFile} onFileChange={setSchemeFile} disabled={busy}/>
+          <UploadArea title="Upload assignment mark scheme" description="PDF, DOCX, PNG, or JPG/JPEG — saved for future submissions" file={schemeFile} onFileChange={setSchemeFile} disabled={busy}/>
           <div className="or-divider"><span>OR</span></div>
           <label className="teacher-field"><span>Mark Scheme / grading criteria</span><textarea name="mark_scheme_text" value={values.mark_scheme_text} onChange={update} rows="6" maxLength={50000} placeholder="Paste expected answers and criteria for awarding marks…"/><small>Use this instead of an upload, or to add complementary criteria.</small></label>
           <p className="teacher-meta">Maximum marks determined during grading. If providing both sources, use complementary criteria.</p>

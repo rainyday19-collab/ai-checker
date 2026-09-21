@@ -46,10 +46,18 @@ def get_configuration() -> tuple[str, str]:
 
 def content_parts(document: PreparedContent, label: str) -> list[ResponseInputContentParam]:
     parts: list[ResponseInputContentParam] = [{"type": "input_text", "text": label}]
-    if document.kind == "text":
+    if document.kind in {"text", "docx"}:
         if not document.text.strip():
-            raise ValueError("Text inputs require document text.")
-        parts.append({"type": "input_text", "text": document.text})
+            if not document.embedded_images:
+                raise ValueError("Text inputs require document content.")
+        else:
+            parts.append({"type": "input_text", "text": document.text})
+        for index, embedded in enumerate(document.embedded_images, start=1):
+            encoded = base64.b64encode(embedded.original_bytes).decode("ascii")
+            parts.append({"type": "input_text", "text": (
+                f"{label} — DOCX EMBEDDED IMAGE {index} OF {len(document.embedded_images)} — {embedded.filename}"
+            )})
+            parts.append({"type": "input_image", "image_url": f"data:{embedded.content_type};base64,{encoded}", "detail": "auto"})
     else:
         if not document.original_bytes:
             raise ValueError("Visual inputs require original file bytes.")
