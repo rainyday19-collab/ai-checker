@@ -274,6 +274,7 @@ nav[aria-label="Main navigation"] { min-width: 0; }
 .status-badge > span { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .status-success { color: var(--success); background: var(--success-soft); border-color: #cde8da; }
 .status-warning { color: var(--warning); background: var(--warning-soft); border-color: #f0dfb9; }
+.status-danger { color: var(--danger); background: #fff3f3; border-color: #f0d1d5; }
 .status-accent { color: #5148a3; background: #f2f0fb; border-color: #e0dcf6; }
 .loading-state { min-height: 190px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 11px; color: var(--muted); font-size: 12px; padding: 36px; }
 .history-card > .loading-state, .submissions-card > .loading-state { border: 0; box-shadow: none; border-radius: 0; }
@@ -432,12 +433,44 @@ nav[aria-label="Main navigation"] { min-width: 0; }
 .submissions-view { margin-top: 28px; }
 .submission-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .export-hint { margin: -8px 0 18px; }
+.batch-form { display: grid; gap: 20px; }
+.batch-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.batch-heading h3 { margin-bottom: 5px; }
+.batch-heading p { margin: 0; }
+.batch-heading > strong { color: #302963; font-size: 12px; white-space: nowrap; }
+.batch-student-list { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
+.batch-student-card { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--border); border-radius: 10px; background: #fcfcff; }
+.batch-student-card.batch-grading { border-color: #8d85d9; box-shadow: 0 0 0 3px #5046cf12; }
+.batch-student-card.batch-failed { border-color: #efcbd0; background: #fffafa; }
+.batch-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.batch-card-heading > div { display: flex; align-items: center; gap: 12px; }
+.batch-card-heading > div > span:first-child { color: #302963; font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
+.batch-name-field { margin: 0; }
+.batch-add-student { justify-self: start; min-height: 42px; }
+.batch-progress { display: grid; gap: 9px; padding: 14px 16px; border: 1px solid #e0ddf4; border-radius: 9px; background: #f8f7fe; }
+.batch-progress > div:first-child { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; }
+.batch-progress p { margin: 0; color: var(--muted); font-size: 10px; }
+.batch-progress-track { height: 7px; overflow: hidden; border-radius: 999px; background: #e6e3f5; }
+.batch-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .2s ease; }
+.batch-result { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px; border-radius: 8px; background: white; border: 1px solid var(--border); }
+.batch-result > div { display: flex; align-items: baseline; gap: 10px; }
+.batch-result > div strong { color: #302963; font-size: 18px; }
+.batch-result > div span { color: var(--muted); font-size: 11px; }
+.batch-failed-result p { margin: 0; color: var(--danger); font-size: 11px; line-height: 1.6; }
+.batch-summary { display: flex; justify-content: space-between; gap: 16px; padding: 15px 16px; border: 1px solid #cde8da; border-radius: 9px; background: var(--success-soft); color: var(--success); font-size: 12px; }
+.batch-summary span { color: #485c52; }
+.batch-footer-actions { margin-top: 0; }
 @media (max-width: 900px) { .teacher-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) {
   .teacher-card-grid, .teacher-form-grid { grid-template-columns: 1fr; }
   .teacher-heading { flex-wrap: wrap; gap: 14px; }
   .teacher-form, .teacher-details { padding: 22px; }
   .submission-actions { width: 100%; display: grid; grid-template-columns: 1fr; }
+  .batch-heading, .batch-card-heading, .batch-result, .batch-summary { align-items: stretch; flex-direction: column; }
+  .batch-heading > strong { white-space: normal; }
+  .batch-card-heading > .delete-button, .batch-result > button { width: 100%; min-height: 42px; }
+  .batch-card-heading > div { justify-content: space-between; }
+  .batch-add-student { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
