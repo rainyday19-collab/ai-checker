@@ -303,16 +303,14 @@ class SubmissionTests(unittest.TestCase):
         self.assertEqual(len(self.client.get("/api/assessments").json()), 1)
         self.assertEqual(len(self.client.get(f"/api/assignments/{self.assignment}/submissions").json()), 1)
 
-    def test_visual_pdf_limitation_before_ai_request(self):
+    def test_scanned_pdf_is_accepted_in_mock_mode_without_ai_request(self):
         writer = PdfWriter()
         writer.add_blank_page(width=100, height=100)
         content = BytesIO()
         writer.write(content)
-        with patch.dict("os.environ", {"GRADING_MODE": "openai", "OPENAI_API_KEY": "test-key-not-real", "OPENAI_MODEL": "test-model"}):
-            response = self.grade(content=content.getvalue(), filename="scan.pdf", mime="application/pdf")
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("selectable text", response.json()["detail"])
-        self.assert_no_saved_result()
+        response = self.grade(content=content.getvalue(), filename="scan.pdf", mime="application/pdf")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(len(self.client.get("/api/assessments").json()), 1)
 
 
 if __name__ == "__main__":

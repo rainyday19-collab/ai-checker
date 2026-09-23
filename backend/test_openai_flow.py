@@ -234,18 +234,20 @@ class OpenAIFlowTests(unittest.TestCase):
         self.ai_client.assert_not_called()
         self.assertEqual(self.client.get("/api/assessments").json(), [])
 
-    def test_visual_pdf_rejected_before_request(self):
+    def test_visual_pdf_is_rendered_into_the_existing_single_request(self):
         writer = PdfWriter()
         writer.add_blank_page(width=100, height=100)
         pdf = BytesIO()
         writer.write(pdf)
         response = self.client.post("/api/assess", files={"student_work":
             ("scan.pdf", pdf.getvalue(), "application/pdf")}, data={"criteria_text": "Award 4 marks."})
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("selectable text", response.json()["detail"])
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(len(self.rubric_requests), 1)
-        self.assertEqual(len(self.requests), 0)
-        self.assertEqual(self.client.get("/api/assessments").json(), [])
+        self.assertEqual(len(self.requests), 1)
+        parts = self.requests[0]["input"][0]["content"]
+        self.assertEqual(sum(part["type"] == "input_image" for part in parts), 1)
+        self.assertTrue(any("SOURCE: scan.pdf, page 1" in part.get("text", "") for part in parts))
+        self.assertEqual(len(self.client.get("/api/assessments").json()), 1)
 
     def test_mock_mode_needs_no_key_and_no_request(self):
         with patch.dict(os.environ, {"GRADING_MODE": "mock", "OPENAI_API_KEY": ""}):

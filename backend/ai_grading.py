@@ -355,7 +355,24 @@ def get_configuration() -> tuple[str, str, float]:
 
 def content_parts(document: PreparedContent, label: str) -> list[ResponseInputContentParam]:
     parts: list[ResponseInputContentParam] = [{"type": "input_text", "text": label}]
-    if document.kind in {"text", "docx"}:
+    if document.kind == "pdf_visual":
+        if not document.pdf_pages:
+            raise ValueError("Visual PDF inputs require prepared pages.")
+        for page in document.pdf_pages:
+            source = f"{document.filename}, page {page.page_number}"
+            if page.rendered_image:
+                encoded = base64.b64encode(page.rendered_image.original_bytes).decode("ascii")
+                parts.append({"type": "input_text", "text": f"SOURCE: {source} — RENDERED PAGE IMAGE"})
+                parts.append({"type": "input_image", "image_url": (
+                    f"data:{page.rendered_image.content_type};base64,{encoded}"
+                ), "detail": "auto"})
+            elif page.text.strip():
+                parts.append({"type": "input_text", "text": (
+                    f"SOURCE: {source} — EXTRACTED TEXT\n{page.text}"
+                )})
+            else:
+                raise ValueError("Each prepared PDF page requires text or a rendered image.")
+    elif document.kind in {"text", "docx"}:
         if not document.text.strip():
             if not document.embedded_images:
                 raise ValueError("Text inputs require document content.")
@@ -374,9 +391,6 @@ def content_parts(document: PreparedContent, label: str) -> list[ResponseInputCo
         data_url = f"data:{document.content_type};base64,{encoded}"
         if document.kind == "image":
             parts.append({"type": "input_image", "image_url": data_url, "detail": "auto"})
-        elif document.kind == "pdf_visual":
-            # Send the original PDF directly; no OCR, rendering, or separate file upload.
-            parts.append({"type": "input_file", "filename": document.filename, "file_data": data_url})
         else:
             raise ValueError("Unsupported prepared content kind.")
     return parts
@@ -498,9 +512,6 @@ async def grade_assessment(prepared: GradingInput, *, allow_api_request: bool = 
     api_key, model, timeout_seconds = get_configuration()
     if prepared.rubric is None:
         raise AIConfigurationError("Prepare a canonical rubric before grading student work.")
-    documents = [*prepared.ordered_student_work]
-    if any(document and document.kind == "pdf_visual" for document in documents):
-        raise AIGradingError("Scanned or low-text PDFs are not supported for AI grading yet. Upload readable PNG/JPG pages or a PDF with selectable text.", 422)
     model_input = build_model_input(prepared)
     try:
         async with AsyncOpenAI(api_key=api_key, timeout=timeout_seconds, max_retries=0) as client:

@@ -5,6 +5,7 @@ from starlette.concurrency import run_in_threadpool
 import database
 from ai_grading import AIConfigurationError, AIGradingError, log_invalid_assessment
 from assessment_service import GradingModeError, run_rubric_normalization
+from document_processing import ProcessedDocument
 from grading import prepare_document
 from mark_scheme_storage import load_document
 from rubric import CanonicalRubric
@@ -13,7 +14,8 @@ from rubric import CanonicalRubric
 RUBRIC_FAILURE_MESSAGE = "Rubric preparation failed. Retry it manually before grading."
 
 
-async def prepare_assignment_rubric(assignment_id: int, *, retry_failed: bool = False) -> CanonicalRubric:
+async def prepare_assignment_rubric(assignment_id: int, *, retry_failed: bool = False,
+                                    mark_scheme_document: ProcessedDocument | None = None) -> CanonicalRubric:
     assignment = await run_in_threadpool(database.get_assignment, assignment_id)
     if assignment is None:
         raise HTTPException(404, "Assignment not found.")
@@ -35,7 +37,7 @@ async def prepare_assignment_rubric(assignment_id: int, *, retry_failed: bool = 
         raise HTTPException(409, "The grading rubric is not ready.")
 
     try:
-        scheme_document = await run_in_threadpool(load_document, assignment)
+        scheme_document = mark_scheme_document or await run_in_threadpool(load_document, assignment)
         mark_scheme = prepare_document(scheme_document) if scheme_document else None
         criteria = (assignment.get("mark_scheme_text") or "").strip() or None
         if mark_scheme is None and criteria is None:

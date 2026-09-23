@@ -14,6 +14,7 @@ from PIL import Image
 
 from ai_grading import (AIConfigurationError, AIGradingError, OUTPUT_TOKEN_LIMIT, RUBRIC_INSTRUCTION, SYSTEM_INSTRUCTION,
                         build_model_input, get_timeout_seconds, grade_assessment)
+from document_processing import EmbeddedImage, PDFPageContent
 from grading import AssessmentResult, GradingInput, PreparedContent
 from main import app
 from rubric import demo_rubric
@@ -152,8 +153,13 @@ class AIGradingTests(unittest.IsolatedAsyncioTestCase):
 
 class InputAndEndpointTests(unittest.TestCase):
     def test_visual_payload_preserves_bytes(self):
-        for kind, mime, filename, expected_type in [("image", "image/png", "work.png", "input_image"), ("pdf_visual", "application/pdf", "work.pdf", "input_file")]:
-            content = PreparedContent(kind, filename, mime, original_bytes=b"binary fixture")
+        image = EmbeddedImage("work-page-1.jpg", "image/jpeg", b"binary fixture", 10, 10)
+        cases = [
+            (PreparedContent("image", "work.png", "image/png", original_bytes=b"binary fixture"), "input_image"),
+            (PreparedContent("pdf_visual", "work.pdf", "application/pdf",
+                             pdf_pages=(PDFPageContent(1, rendered_image=image),)), "input_image"),
+        ]
+        for content, expected_type in cases:
             parts = build_model_input(GradingInput(content, content, "Additional criteria", rubric=demo_rubric(4)))[0]["content"]
             visual_parts = [part for part in parts if part["type"] == expected_type]
             self.assertEqual(len(visual_parts), 1)

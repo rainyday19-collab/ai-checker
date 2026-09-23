@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from io import BytesIO
+from math import ceil, isfinite
 from pathlib import Path, PurePosixPath
 import re
 import warnings
@@ -13,6 +14,7 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 from fastapi import HTTPException, UploadFile
 from PIL import Image
+import pymupdf
 from pypdf import PdfReader
 from starlette.concurrency import run_in_threadpool
 
@@ -29,6 +31,13 @@ MAX_DOCX_EMBEDDED_IMAGES_BYTES = 20 * 1024 * 1024
 MIN_DOCX_IMAGE_DIMENSION = 32
 MIN_DOCX_IMAGE_PIXELS = 4_096
 MAX_PDF_PAGES = 50
+MAX_RENDERED_PDF_PAGES = 10
+PDF_RENDER_DPI = 144
+MAX_RENDERED_PAGE_DIMENSION = 3_000
+MAX_RENDERED_PAGE_PIXELS = 8_000_000
+MAX_RENDERED_PAGE_BYTES = 4 * 1024 * 1024
+MAX_RENDERED_PDF_BYTES = 20 * 1024 * 1024
+PDF_JPEG_QUALITY = 85
 MAX_IMAGE_PIXELS = 20_000_000
 MIN_PAGE_TEXT_CHARACTERS = 20
 SUPPORTED_TYPES = {
@@ -63,6 +72,13 @@ class EmbeddedImage:
     height: int
 
 
+@dataclass(frozen=True)
+class PDFPageContent:
+    page_number: int
+    text: str = ""
+    rendered_image: EmbeddedImage | None = None
+
+
 @dataclass
 class ProcessedDocument:
     filename: str
@@ -75,6 +91,7 @@ class ProcessedDocument:
     width: int | None = None
     height: int | None = None
     embedded_images: tuple[EmbeddedImage, ...] = ()
+    pdf_pages: tuple[PDFPageContent, ...] = ()
 
     def diagnostics(self) -> dict:
         # Keep document text and original bytes on the backend, out of the response.
@@ -93,7 +110,57 @@ class ProcessedDocument:
             result.update(width=self.width, height=self.height)
         if self.embedded_images:
             result["embedded_image_count"] = len(self.embedded_images)
+        if self.pdf_pages:
+            result["rendered_pdf_page_count"] = sum(page.rendered_image is not None for page in self.pdf_pages)
         return result
+
+
+def useful_pdf_text(text: str) -> bool:
+    return len("".join(text.split())) >= MIN_PAGE_TEXT_CHARACTERS
+
+
+def render_sparse_pdf_pages(data: bytes, filename: str, page_numbers: list[int],
+                            field: str) -> dict[int, EmbeddedImage]:
+    if len(page_numbers) > MAX_RENDERED_PDF_PAGES:
+        raise HTTPException(
+            413, f"{field} PDF may contain at most {MAX_RENDERED_PDF_PAGES} pages requiring visual fallback."
+        )
+    rendered: dict[int, EmbeddedImage] = {}
+    total_bytes = 0
+    scale = PDF_RENDER_DPI / 72
+    try:
+        with pymupdf.open(stream=data, filetype="pdf") as pdf:
+            if pdf.needs_pass:
+                raise HTTPException(422, f"{field} is encrypted. Upload an unencrypted PDF.")
+            for page_number in page_numbers:
+                page = pdf[page_number - 1]
+                width = ceil(page.rect.width * scale)
+                height = ceil(page.rect.height * scale)
+                if (not isfinite(page.rect.width) or not isfinite(page.rect.height) or
+                        width <= 0 or height <= 0 or width > MAX_RENDERED_PAGE_DIMENSION or
+                        height > MAX_RENDERED_PAGE_DIMENSION or width * height > MAX_RENDERED_PAGE_PIXELS):
+                    raise HTTPException(413, f"{field} PDF page {page_number} dimensions are too large to render safely.")
+                pixmap = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale),
+                                         colorspace=pymupdf.csRGB, alpha=False)
+                image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+                output = BytesIO()
+                image.save(output, format="JPEG", quality=PDF_JPEG_QUALITY, optimize=True)
+                image_bytes = output.getvalue()
+                if len(image_bytes) > MAX_RENDERED_PAGE_BYTES:
+                    raise HTTPException(413, f"{field} PDF page {page_number} rendered image is too large.")
+                total_bytes += len(image_bytes)
+                if total_bytes > MAX_RENDERED_PDF_BYTES:
+                    raise HTTPException(413, f"{field} PDF rendered pages must total 20 MB or smaller.")
+                rendered[page_number] = EmbeddedImage(
+                    filename=f"{Path(filename).stem}-page-{page_number}.jpg",
+                    content_type="image/jpeg", original_bytes=image_bytes,
+                    width=pixmap.width, height=pixmap.height,
+                )
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(422, f"{field} PDF pages could not be rendered safely.") from error
+    return rendered
 
 
 def validate_docx_archive(data: bytes, field: str):
@@ -253,13 +320,22 @@ def extract_content(data: bytes, filename: str, content_type: str, field: str) -
             if document.page_count > MAX_PDF_PAGES:
                 raise HTTPException(413, f"{field} PDF must contain at most {MAX_PDF_PAGES} pages.")
             page_texts = [(page.extract_text() or "").strip() for page in reader.pages]
-            document.text = "\n\n".join(
-                f"[Page {index}]\n{text}" for index, text in enumerate(page_texts, start=1) if text
-            ).strip()
-            # Flag mixed PDFs too: a text cover page must not hide a scanned answer page.
-            document.requires_visual_processing = any(
-                len("".join(text.split())) < MIN_PAGE_TEXT_CHARACTERS for text in page_texts
+            sparse_pages = [index for index, text in enumerate(page_texts, start=1)
+                            if not useful_pdf_text(text)]
+            rendered_pages = render_sparse_pdf_pages(data, filename, sparse_pages, field) if sparse_pages else {}
+            document.pdf_pages = tuple(
+                PDFPageContent(
+                    page_number=index,
+                    text=text if useful_pdf_text(text) else "",
+                    rendered_image=rendered_pages.get(index),
+                )
+                for index, text in enumerate(page_texts, start=1)
             )
+            document.text = "\n\n".join(
+                f"[PDF Page {index} - extracted text]\n{text}"
+                for index, text in enumerate(page_texts, start=1) if useful_pdf_text(text)
+            ).strip()
+            document.requires_visual_processing = bool(sparse_pages)
         else:
             expected_format = "PNG" if content_type == "image/png" else "JPEG"
             with warnings.catch_warnings():

@@ -122,6 +122,7 @@ def list_assignments(class_id: int):
 async def create_assignment(class_id: int, request: Request):
     form = None
     stored = None
+    document = None
     saved = False
     try:
         if await run_in_threadpool(database.get_class, class_id) is None:
@@ -149,7 +150,7 @@ async def create_assignment(class_id: int, request: Request):
             raise HTTPException(404, "Class not found.")
         saved = True
         try:
-            await prepare_assignment_rubric(result["id"])
+            await prepare_assignment_rubric(result["id"], mark_scheme_document=document)
         except HTTPException:
             # The assignment and mark scheme remain valid. The response exposes the
             # failed state and the teacher can explicitly retry without an auto-loop.

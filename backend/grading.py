@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-from document_processing import EmbeddedImage, ProcessedDocument
+from document_processing import EmbeddedImage, PDFPageContent, ProcessedDocument
 from rubric import CanonicalRubric
 
 
@@ -200,6 +200,7 @@ class PreparedContent:
     text: str = ""
     original_bytes: bytes | None = field(default=None, repr=False)
     embedded_images: tuple[EmbeddedImage, ...] = field(default=(), repr=False)
+    pdf_pages: tuple[PDFPageContent, ...] = field(default=(), repr=False)
 
 
 @dataclass(frozen=True)
@@ -224,16 +225,24 @@ def prepare_document(document: ProcessedDocument) -> PreparedContent:
             kind="docx", filename=document.filename, content_type=document.content_type,
             text=text, embedded_images=document.embedded_images,
         )
-    if document.type == "image" or document.requires_visual_processing:
+    if document.type == "image":
         if not document.original_bytes:
             raise ValueError("Visual inputs require the original file bytes.")
-        # Preserve mixed-PDF text as well as the file for future visual processing.
         return PreparedContent(
-            kind="image" if document.type == "image" else "pdf_visual",
+            kind="image",
             filename=document.filename,
             content_type=document.content_type,
             text=text,
             original_bytes=document.original_bytes,
+        )
+    if document.type == "pdf" and document.requires_visual_processing:
+        if not document.pdf_pages or not any(page.rendered_image for page in document.pdf_pages):
+            raise ValueError("Visual PDF inputs require rendered page images.")
+        # Deliberately omit the original PDF bytes: only bounded, in-memory page
+        # images and extracted text continue into the multimodal request.
+        return PreparedContent(
+            kind="pdf_visual", filename=document.filename, content_type=document.content_type,
+            text=text, pdf_pages=document.pdf_pages,
         )
     if not text:
         raise ValueError("Text inputs require extracted document text.")

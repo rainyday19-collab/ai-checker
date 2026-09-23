@@ -2,7 +2,7 @@ import unittest
 
 from pydantic import ValidationError
 
-from document_processing import ProcessedDocument
+from document_processing import EmbeddedImage, PDFPageContent, ProcessedDocument
 from grading import AssessmentResult, MarkingPointResult, QuestionResult, prepare_grading_input
 
 
@@ -159,14 +159,20 @@ class GradingTests(unittest.TestCase):
     def test_visual_and_uploaded_scheme_inputs(self):
         work = ProcessedDocument("work.png", "image/png", "image", b"image fixture", requires_visual_processing=True)
         for visual in [False, True]:
-            scheme = ProcessedDocument("scheme.pdf", "application/pdf", "pdf", b"pdf fixture", text="Partial or full criteria", requires_visual_processing=visual)
+            rendered = EmbeddedImage("scheme-page-2.jpg", "image/jpeg", b"page fixture", 100, 100)
+            pdf_pages = (PDFPageContent(1, text="Partial or full criteria"),
+                         PDFPageContent(2, rendered_image=rendered)) if visual else ()
+            scheme = ProcessedDocument("scheme.pdf", "application/pdf", "pdf", b"pdf fixture",
+                                       text="Partial or full criteria", requires_visual_processing=visual,
+                                       pdf_pages=pdf_pages)
             prepared = prepare_grading_input(work, scheme, "Additional criteria")
             self.assertEqual(prepared.student_work.original_bytes, b"image fixture")
             self.assertEqual(prepared.student_work.kind, "image")
             self.assertEqual(prepared.mark_scheme.kind, "pdf_visual" if visual else "text")
             self.assertEqual(prepared.mark_scheme.text, scheme.text)
             if visual:
-                self.assertEqual(prepared.mark_scheme.original_bytes, b"pdf fixture")
+                self.assertIsNone(prepared.mark_scheme.original_bytes)
+                self.assertEqual(prepared.mark_scheme.pdf_pages, pdf_pages)
         image_scheme = prepare_grading_input(work, work)
         self.assertEqual(image_scheme.mark_scheme.kind, "image")
 
