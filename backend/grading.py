@@ -5,22 +5,127 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from document_processing import EmbeddedImage, ProcessedDocument
+from rubric import CanonicalRubric
+
+
+class MarkingPointResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    marking_point_id: str | None = None
+    criterion: str = Field(min_length=1)
+    status: Literal["met", "partially_met", "not_met", "unclear"]
+    awarded_marks: float = Field(ge=0)
+    max_marks: float = Field(gt=0)
+    rationale: str = Field(min_length=1)
+    evidence_status: Literal["found", "not_found", "unclear"]
+    evidence: str | None = None
+    source_location: str | None = None
+    criterion_type: Literal["semantic", "exact"] | None = None
+    guidance: str | None = None
+
+    @model_validator(mode="after")
+    def validate_marking_point(self):
+        if self.awarded_marks > self.max_marks:
+            raise ValueError("Marking-point marks cannot exceed their maximum.")
+        if self.status == "met" and self.awarded_marks != self.max_marks:
+            raise ValueError("A met marking point must receive its full marks.")
+        if self.status == "partially_met" and not 0 < self.awarded_marks < self.max_marks:
+            raise ValueError("A partially met marking point must receive partial marks.")
+        if self.status == "not_met" and self.awarded_marks != 0:
+            raise ValueError("A marking point that is not met must receive zero marks.")
+        if self.status == "unclear" and self.awarded_marks == self.max_marks:
+            raise ValueError("An unclear marking point cannot receive full marks.")
+        if self.evidence_status == "not_found":
+            if self.awarded_marks != 0:
+                raise ValueError("A marking point with no evidence found must receive zero marks.")
+            if self.status != "not_met":
+                raise ValueError("Missing evidence must produce a not-met marking point.")
+        if self.evidence_status == "unclear" and self.status != "unclear":
+            raise ValueError("Unclear evidence must produce an unclear marking point.")
+        if self.status == "unclear" and self.evidence_status != "unclear":
+            raise ValueError("An unclear marking point requires unclear evidence.")
+        evidence = (self.evidence or "").strip()
+        source = (self.source_location or "").strip()
+        if self.evidence_status in {"found", "unclear"}:
+            if not evidence:
+                raise ValueError("Found or unclear marking-point evidence must be described.")
+            if not source:
+                raise ValueError("Found or unclear marking-point evidence requires a source location.")
+        if self.awarded_marks > 0 and self.evidence_status != "found":
+            raise ValueError("Awarded marking-point marks require found evidence.")
+        return self
 
 
 class QuestionResult(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
+    question_id: str | None = None
     question: str = Field(min_length=1)
     score: float = Field(ge=0)
     max_score: float = Field(gt=0)
     feedback: str = Field(min_length=1)
     evidence: str | None = None
+    evidence_status: Literal["found", "not_found", "unclear"] | None = None
+    source_location: str | None = None
+    marking_points: list[MarkingPointResult] | None = None
 
     @model_validator(mode="after")
-    def validate_score(self):
+    def validate_score_and_evidence(self):
         if self.score > self.max_score:
             raise ValueError("Question score cannot exceed its maximum score.")
+        if self.marking_points is not None:
+            if not self.marking_points:
+                raise ValueError("Marking-point results cannot be empty.")
+            if not isclose(sum(point.max_marks for point in self.marking_points), self.max_score, abs_tol=1e-9):
+                raise ValueError("Marking-point maximum marks must sum to the question maximum.")
+            if not isclose(sum(point.awarded_marks for point in self.marking_points), self.score, abs_tol=1e-9):
+                raise ValueError("Question score must equal the sum of awarded marking-point marks.")
+        # A missing status identifies a legacy saved result. New model output always
+        # includes a status and is subject to the evidence-grounding rules below.
+        if self.evidence_status is None:
+            return self
+        evidence = (self.evidence or "").strip()
+        source = (self.source_location or "").strip()
+        if self.evidence_status == "not_found" and self.score != 0:
+            raise ValueError("A question with no evidence found must receive zero marks.")
+        if self.evidence_status == "found":
+            if not evidence:
+                raise ValueError("Found evidence requires a concise evidence description.")
+            if not source:
+                raise ValueError("Found evidence requires a source location.")
+        if self.evidence_status == "unclear":
+            if self.score == self.max_score:
+                raise ValueError("Unclear evidence cannot receive full marks.")
+            if not evidence:
+                raise ValueError("Unclear evidence requires a concise uncertainty description.")
+            if not source:
+                raise ValueError("Unclear evidence requires a source location.")
         return self
+
+    @classmethod
+    def from_marking_points(cls, *, question: str, max_score: float, feedback: str,
+                            question_id: str | None = None,
+                            marking_points: list[MarkingPointResult | dict]):
+        points = [MarkingPointResult.model_validate(point) for point in marking_points]
+        statuses = {point.evidence_status for point in points}
+        evidence_status = "found" if "found" in statuses else "unclear" if "unclear" in statuses else "not_found"
+        evidences = list(dict.fromkeys(
+            point.evidence.strip() for point in points if point.evidence and point.evidence.strip()
+        ))
+        sources = list(dict.fromkeys(
+            point.source_location.strip() for point in points if point.source_location and point.source_location.strip()
+        ))
+        return cls(
+            question_id=question_id,
+            question=question,
+            score=sum(point.awarded_marks for point in points),
+            max_score=max_score,
+            feedback=feedback,
+            evidence=" | ".join(evidences) or None,
+            evidence_status=evidence_status,
+            source_location=", ".join(sources) or None,
+            marking_points=points,
+        )
 
 
 class AssessmentResult(BaseModel):
@@ -103,6 +208,7 @@ class GradingInput:
     mark_scheme: PreparedContent | None
     criteria_text: str | None
     student_work_pages: tuple[PreparedContent, ...] = ()
+    rubric: CanonicalRubric | None = None
 
     @property
     def ordered_student_work(self) -> tuple[PreparedContent, ...]:
@@ -138,9 +244,10 @@ def prepare_grading_input(
     student_work: ProcessedDocument | list[ProcessedDocument],
     mark_scheme: ProcessedDocument | None = None,
     criteria_text: str | None = None,
+    rubric: CanonicalRubric | None = None,
 ) -> GradingInput:
     criteria = (criteria_text or "").strip() or None
-    if mark_scheme is None and criteria is None:
+    if mark_scheme is None and criteria is None and rubric is None:
         raise ValueError("Provide a mark scheme or non-empty grading criteria.")
     documents = student_work if isinstance(student_work, list) else [student_work]
     if not documents:
@@ -151,4 +258,5 @@ def prepare_grading_input(
         mark_scheme=prepare_document(mark_scheme) if mark_scheme else None,
         criteria_text=criteria,
         student_work_pages=prepared_pages,
+        rubric=rubric,
     )

@@ -28,11 +28,29 @@ export async function getSubmission(id, signal) {
   return validateDetail(await requestApi(`/api/submissions/${id}`, { signal }));
 }
 
-export async function gradeSubmission(assignmentId, name, files) {
+export async function gradeSubmission(assignmentId, name, files, diagnostics = {}) {
+  const uploadFiles = Array.from(files || []);
   const body = new FormData();
   body.append('student_name', name.trim());
-  files.forEach((file) => body.append('student_work', file));
-  return validateDetail(await requestApi(`/api/assignments/${assignmentId}/submissions/grade`, { method: 'POST', body }));
+  uploadFiles.forEach((file) => body.append('student_work', file));
+  const endpoint = `/api/assignments/${assignmentId}/submissions/grade`;
+  try {
+    return validateDetail(await requestApi(endpoint, { method: 'POST', body }));
+  } catch (failure) {
+    if (import.meta.env.DEV) {
+      console.error('Assignment grading request failed', {
+        endpoint,
+        status: failure?.status ?? null,
+        source: diagnostics.source || 'single',
+        batchStudentIndex: diagnostics.batchStudentIndex ?? null,
+        fileCount: uploadFiles.length,
+        fileTypes: uploadFiles.map((file) => file?.type || 'unknown'),
+        fileExtensions: uploadFiles.map((file) => file?.name?.split('.').pop()?.toLowerCase() || 'unknown'),
+        fileSizes: uploadFiles.map((file) => Number.isFinite(file?.size) ? file.size : null),
+      });
+    }
+    throw failure;
+  }
 }
 
 export const deleteSubmission = (id) => requestApi(`/api/submissions/${id}`, { method: 'DELETE' });

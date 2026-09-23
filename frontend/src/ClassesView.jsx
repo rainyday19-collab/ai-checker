@@ -22,10 +22,18 @@ export default function ClassesView({ onGradingChange }) {
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [grading, setGrading] = useState(false);
+  const [rubric, setRubric] = useState(null);
+  const [rubricBusy, setRubricBusy] = useState(false);
+  const [rubricError, setRubricError] = useState('');
   const [pendingDelete, setPendingDelete] = useState(null);
   const toast = useToast();
   const deleteInFlight = useRef(false);
-  const busy = loading || deleting || grading;
+  const busy = loading || deleting || grading || rubricBusy;
+
+  useEffect(() => {
+    setRubric(null);
+    setRubricError('');
+  }, [assignmentId]);
 
   function gradingChanged(value) {
     setGrading(value);
@@ -65,6 +73,27 @@ export default function ClassesView({ onGradingChange }) {
 
   function navigate(nextClass = null, nextAssignment = null) {
     go(nextAssignment != null ? `/assignments/${nextAssignment}` : nextClass != null ? `/classes/${nextClass}` : '/classes');
+  }
+
+  async function viewRubric() {
+    if (rubricBusy || assignmentId == null) return;
+    setRubricBusy(true);
+    setRubricError('');
+    try { setRubric(await api.getAssignmentRubric(assignmentId)); }
+    catch (failure) { setRubricError(errorMessage(failure)); }
+    finally { setRubricBusy(false); }
+  }
+
+  async function retryRubric() {
+    if (rubricBusy || assignmentId == null) return;
+    setRubricBusy(true);
+    setRubricError('');
+    try {
+      setRubric(await api.retryAssignmentRubric(assignmentId));
+      toast('Grading rubric is ready.');
+      setRefresh((value) => value + 1);
+    } catch (failure) { setRubricError(errorMessage(failure)); }
+    finally { setRubricBusy(false); }
   }
 
   async function remove(kind, id) {
@@ -123,6 +152,19 @@ export default function ClassesView({ onGradingChange }) {
           {assignment.mark_scheme.has_file && <p className="teacher-copy file-summary"><strong>{assignment.mark_scheme.original_filename}</strong><span>{assignment.mark_scheme.type === 'pdf' ? 'PDF document' : assignment.mark_scheme.type === 'docx' ? 'Word document' : 'Image file'}</span></p>}
           {assignment.mark_scheme.has_text && <details><summary className="teacher-meta">Text criteria · Saved — expand to view</summary><p className="teacher-copy criteria-copy">{assignment.mark_scheme_text}</p></details>}
           {!assignment.mark_scheme.has_file && !assignment.mark_scheme.has_text && <p className="teacher-meta">No mark scheme added to this legacy assignment.</p>}
+          <div className="section-title-row"><h3>Grading rubric</h3><StatusBadge tone={assignment.rubric.status === 'ready' ? 'success' : 'warning'}>{assignment.rubric.status === 'ready' ? 'Ready' : assignment.rubric.status === 'failed' ? 'Failed' : assignment.rubric.status === 'preparing' ? 'Preparing' : 'Unavailable'}</StatusBadge></div>
+          {assignment.rubric.status === 'ready' ? <>
+            <p className="teacher-meta">{assignment.rubric.total_marks} marks · {assignment.rubric.question_count} question{assignment.rubric.question_count === 1 ? '' : 's'} · {assignment.rubric.marking_point_count} marking point{assignment.rubric.marking_point_count === 1 ? '' : 's'}</p>
+            <button className="secondary-button" type="button" disabled={rubricBusy} onClick={viewRubric}>{rubricBusy ? 'Loading…' : rubric ? 'Refresh rubric' : 'View rubric'}</button>
+          </> : assignment.rubric.status === 'failed' ? <div className="rubric-failure"><p className="teacher-error" role="alert">{assignment.rubric.error || 'Rubric preparation failed.'}</p><button className="secondary-button" type="button" disabled={rubricBusy} onClick={retryRubric}>{rubricBusy ? 'Preparing…' : 'Retry rubric preparation'}</button></div> : <p className="teacher-meta">Rubric preparation must finish before grading.</p>}
+          {rubricError && <p className="teacher-error" role="alert">{rubricError}</p>}
+          {rubric && <section className="rubric-panel" aria-label="Canonical grading rubric">
+            <div className="rubric-panel-heading"><strong>{rubric.title || 'Canonical rubric'}</strong><span>{rubric.total_marks} marks</span></div>
+            {rubric.questions.map((question) => <div className="rubric-question" key={question.question_id}>
+              <div><strong>{question.question_text}</strong><span>{question.max_marks} marks · {question.question_id}</span></div>
+              <ul>{question.marking_points.map((point) => <li key={point.id}><span>{point.criterion}</span><small>{point.max_marks} mark{point.max_marks === 1 ? '' : 's'} · {point.criterion_type} · {point.id}</small>{point.guidance && <small>{point.guidance}</small>}</li>)}</ul>
+            </div>)}
+          </section>}
         </section>
         <SubmissionsView key={assignment.id} assignment={assignment} onBusyChange={gradingChanged}/>
       </> : <>

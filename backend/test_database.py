@@ -83,6 +83,41 @@ class AssessmentPersistenceTests(unittest.TestCase):
         database.initialize_database()
         self.assertEqual(database.get_assessment(saved["id"]).result.total_score, 17)
 
+    def test_legacy_result_without_evidence_grounding_fields_still_loads(self):
+        saved = self.save()
+        with database.connection() as connection:
+            row = connection.execute(
+                "SELECT result_json FROM assessments WHERE id = ?", (saved["id"],),
+            ).fetchone()
+            result = json.loads(row["result_json"])
+            for question in result["questions"]:
+                question.pop("evidence_status", None)
+                question.pop("source_location", None)
+            connection.execute(
+                "UPDATE assessments SET result_json = ? WHERE id = ?", (json.dumps(result), saved["id"]),
+            )
+        response = self.client.get(f'/api/assessments/{saved["id"]}')
+        self.assertEqual(response.status_code, 200)
+        question = response.json()["result"]["questions"][0]
+        self.assertIsNone(question["evidence_status"])
+        self.assertIsNone(question["source_location"])
+
+    def test_legacy_result_without_marking_points_still_loads(self):
+        saved = self.save()
+        with database.connection() as connection:
+            row = connection.execute(
+                "SELECT result_json FROM assessments WHERE id = ?", (saved["id"],),
+            ).fetchone()
+            result = json.loads(row["result_json"])
+            for question in result["questions"]:
+                question.pop("marking_points", None)
+            connection.execute(
+                "UPDATE assessments SET result_json = ? WHERE id = ?", (json.dumps(result), saved["id"]),
+            )
+        response = self.client.get(f'/api/assessments/{saved["id"]}')
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["result"]["questions"][0]["marking_points"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,8 @@
 export default function ResultsPreview({ assessment, onReset, saved = false, onBack, backLabel = 'Back to History' }) {
   const { result, grading_mode: mode } = assessment;
   const isDemo = mode === 'mock';
+  const evidenceStatusLabel = { found: 'Found', not_found: 'Not found', unclear: 'Unclear' };
+  const pointStatusLabel = { met: 'Met', partially_met: 'Partly met', not_met: 'Not met', unclear: 'Unclear' };
   return (
     <section className="results card" aria-labelledby="results-title">
       <div className="results-heading">
@@ -23,7 +25,23 @@ export default function ResultsPreview({ assessment, onReset, saved = false, onB
             <div className="question-content">
               <div className="question-heading"><h3 id={`question-${index}`}>{item.question}</h3><span className="mark-pill" aria-label={`${item.score} of ${item.max_score} marks awarded`}>{item.score} <span>/ {item.max_score}</span></span></div>
               <p className="feedback result-feedback"><span>Feedback</span>{item.feedback}</p>
-              {item.evidence && <p className="feedback result-evidence"><span>{isDemo ? 'Example evidence' : 'Evidence'}</span>{item.evidence}</p>}
+              {item.marking_points?.length ? <details className="marking-points">
+                <summary>Marking points ({item.marking_points.length})</summary>
+                <div className="marking-point-list">
+                  {item.marking_points.map((point, pointIndex) => <div className={`marking-point marking-point-${point.status}`} key={`${pointIndex}-${point.criterion}`}>
+                    <div className="marking-point-heading"><span className="marking-point-symbol" aria-hidden="true">{point.status === 'met' ? '✓' : point.status === 'partially_met' ? '◐' : point.status === 'unclear' ? '?' : '✕'}</span><strong>{point.criterion}</strong><span>{point.awarded_marks} / {point.max_marks}</span></div>
+                    <p><span>Status</span>{pointStatusLabel[point.status]}</p>
+                    <p><span>Rationale</span>{point.rationale}</p>
+                    <p><span>Evidence status</span>{evidenceStatusLabel[point.evidence_status]}</p>
+                    {point.evidence && <p><span>{isDemo ? 'Example evidence' : 'Evidence'}</span>{point.evidence}</p>}
+                    {point.source_location && <p><span>Source</span>{point.source_location}</p>}
+                  </div>)}
+                </div>
+              </details> : <>
+                {item.evidence_status && <p className="feedback result-evidence"><span>Evidence status</span>{evidenceStatusLabel[item.evidence_status]}</p>}
+                {item.evidence && <p className="feedback result-evidence"><span>{isDemo ? 'Example evidence' : 'Evidence'}</span>{item.evidence}</p>}
+                {item.source_location && <p className="feedback result-evidence"><span>Source</span>{item.source_location}</p>}
+              </>}
             </div>
           </article>
         ))}

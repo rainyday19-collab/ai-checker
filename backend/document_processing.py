@@ -142,6 +142,7 @@ def validate_docx_archive(data: bytes, field: str):
 def docx_text(document, field: str) -> str:
     sections: list[str] = []
     total = 0
+    table_number = 0
     for element in document.element.body.iterchildren():
         section = ""
         if isinstance(element, CT_P):
@@ -153,13 +154,14 @@ def docx_text(document, field: str) -> str:
                     "List Item" if style_name.startswith("list") else "Paragraph"
                 section = f"[{label}]\n{text}"
         elif isinstance(element, CT_Tbl):
+            table_number += 1
             table = Table(element, document)
             rows = []
             for index, row in enumerate(table.rows, start=1):
                 cells = [" ".join(cell.text.split()) for cell in row.cells]
                 rows.append(f"Row {index}: {' | '.join(cells)}")
             if rows:
-                section = "[Table]\n" + "\n".join(rows)
+                section = f"[Table {table_number}]\n" + "\n".join(rows)
         if section:
             total += len(section) + 2
             if total > MAX_DOCX_TEXT_CHARACTERS:
@@ -251,7 +253,9 @@ def extract_content(data: bytes, filename: str, content_type: str, field: str) -
             if document.page_count > MAX_PDF_PAGES:
                 raise HTTPException(413, f"{field} PDF must contain at most {MAX_PDF_PAGES} pages.")
             page_texts = [(page.extract_text() or "").strip() for page in reader.pages]
-            document.text = "\n\n".join(page_texts).strip()
+            document.text = "\n\n".join(
+                f"[Page {index}]\n{text}" for index, text in enumerate(page_texts, start=1) if text
+            ).strip()
             # Flag mixed PDFs too: a text cover page must not hide a scanned answer page.
             document.requires_visual_processing = any(
                 len("".join(text.split())) < MIN_PAGE_TEXT_CHARACTERS for text in page_texts

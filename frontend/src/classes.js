@@ -4,6 +4,8 @@ export const getClasses = (signal) => requestApi('/api/classes', { signal });
 export const getClass = (id, signal) => requestApi(`/api/classes/${id}`, { signal });
 export const getAssignments = (classId, signal) => requestApi(`/api/classes/${classId}/assignments`, { signal });
 export const getAssignment = (id, signal) => requestApi(`/api/assignments/${id}`, { signal });
+export const getAssignmentRubric = (id, signal) => requestApi(`/api/assignments/${id}/rubric`, { signal });
+export const retryAssignmentRubric = (id) => requestApi(`/api/assignments/${id}/rubric/retry`, { method: 'POST' });
 
 const post = (path, values) => requestApi(path, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values),

@@ -6,6 +6,8 @@ from starlette.datastructures import UploadFile
 import database
 from document_processing import process_document
 from mark_scheme_storage import delete_file, save_document
+from rubric import CanonicalRubric
+from rubric_service import prepare_assignment_rubric
 
 
 class ClassCreate(BaseModel):
@@ -42,16 +44,44 @@ class AssignmentResponse(AssignmentCreate):
     class_id: int
     created_at: str
     mark_scheme: MarkSchemeMetadata
+    rubric: "RubricSummary"
+
+
+class RubricSummary(BaseModel):
+    status: str
+    rubric_version: int | None
+    total_marks: float | None
+    question_count: int
+    marking_point_count: int
+    error: str | None
 
 
 def public_assignment(values):
     has_text = bool((values["mark_scheme_text"] or "").strip())
     has_file = bool(values.get("mark_scheme_key"))
     # Explicit response fields keep storage keys and local paths private.
+    rubric = None
+    if values.get("rubric_status") == "ready" and values.get("rubric_json"):
+        try:
+            rubric = CanonicalRubric.model_validate_json(values["rubric_json"])
+        except ValidationError:
+            rubric = None
+    rubric_status = values.get("rubric_status") or "unavailable"
+    if rubric_status == "ready" and rubric is None:
+        rubric_status = "failed"
     return {key: values[key] for key in (*AssignmentCreate.model_fields, "id", "class_id", "created_at")} | {
         "mark_scheme": {"source": "both" if has_file and has_text else "file" if has_file else "text" if has_text else "none",
                         "type": values.get("mark_scheme_type") if has_file else "text" if has_text else None,
-                        "original_filename": values.get("mark_scheme_filename"), "has_text": has_text, "has_file": has_file}}
+                        "original_filename": values.get("mark_scheme_filename"), "has_text": has_text, "has_file": has_file},
+        "rubric": {
+            "status": rubric_status,
+            "rubric_version": rubric.rubric_version if rubric else None,
+            "total_marks": rubric.total_marks if rubric else None,
+            "question_count": len(rubric.questions) if rubric else 0,
+            "marking_point_count": rubric.marking_point_count if rubric else 0,
+            "error": values.get("rubric_error") if rubric_status == "failed" else None,
+        },
+    }
 
 
 router = APIRouter(prefix="/api", tags=["Classes and assignments"])
@@ -118,7 +148,13 @@ async def create_assignment(class_id: int, request: Request):
         if result is None:
             raise HTTPException(404, "Class not found.")
         saved = True
-        return public_assignment(result)
+        try:
+            await prepare_assignment_rubric(result["id"])
+        except HTTPException:
+            # The assignment and mark scheme remain valid. The response exposes the
+            # failed state and the teacher can explicitly retry without an auto-loop.
+            pass
+        return public_assignment(await run_in_threadpool(database.get_assignment, result["id"]))
     except (ValidationError, ValueError) as error:
         raise HTTPException(422, "Provide a valid assignment title, criteria and optional description or legacy total marks.") from error
     finally:
@@ -134,6 +170,24 @@ def get_assignment(assignment_id: int):
     if result is None:
         raise HTTPException(404, "Assignment not found.")
     return public_assignment(result)
+
+
+@router.get("/assignments/{assignment_id}/rubric", response_model=CanonicalRubric)
+def get_assignment_rubric(assignment_id: int):
+    assignment = database.get_assignment(assignment_id)
+    if assignment is None:
+        raise HTTPException(404, "Assignment not found.")
+    rubric = database.get_assignment_rubric(assignment_id)
+    if rubric is None:
+        detail = "Rubric preparation failed. Retry it manually before grading." \
+            if assignment.get("rubric_status") == "failed" else "The grading rubric is not ready."
+        raise HTTPException(409, detail)
+    return rubric
+
+
+@router.post("/assignments/{assignment_id}/rubric/retry", response_model=CanonicalRubric)
+async def retry_assignment_rubric(assignment_id: int):
+    return await prepare_assignment_rubric(assignment_id, retry_failed=True)
 
 
 @router.delete("/assignments/{assignment_id}")

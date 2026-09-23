@@ -12,10 +12,11 @@ from starlette.concurrency import run_in_threadpool
 import database
 from classes_api import router as classes_router
 from submissions_api import router as submissions_router
-from ai_grading import AIConfigurationError, AIGradingError
+from ai_grading import AIConfigurationError, AIGradingError, log_invalid_assessment
 from document_processing import process_document, process_student_work_files
-from assessment_service import GradingModeError, run_assessment
-from grading import AssessmentHistoryItem, AssessmentResponse, AssessmentStatistics, SavedAssessment, prepare_grading_input
+from assessment_service import GradingModeError, run_assessment, run_rubric_normalization
+from grading import (AssessmentHistoryItem, AssessmentResponse, AssessmentStatistics, SavedAssessment,
+                     prepare_document, prepare_grading_input)
 
 
 LOCAL_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
@@ -78,12 +79,15 @@ async def assess(
             )
         student_documents = await process_student_work_files(student_work)
         scheme_document = await process_document(mark_scheme, "Mark scheme") if mark_scheme else None
-        grading_input = prepare_grading_input(student_documents, scheme_document, criteria_text)
+        rubric, _ = await run_rubric_normalization(
+            prepare_document(scheme_document) if scheme_document else None, criteria_text,
+        )
+        grading_input = prepare_grading_input(student_documents, rubric=rubric)
         assessment = await run_assessment(grading_input)
         assessment_id = await run_in_threadpool(
             database.save_assessment, assessment,
             student_documents[0].filename if len(student_documents) == 1 else f"{len(student_documents)} image pages",
-            scheme_document.filename if scheme_document else None, grading_input.criteria_text is not None,
+            scheme_document.filename if scheme_document else None, bool(criteria_text and criteria_text.strip()),
         )
         return assessment.model_copy(update={"id": assessment_id})
     except GradingModeError as error:
@@ -91,6 +95,7 @@ async def assess(
     except AIConfigurationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     except AIGradingError as error:
+        log_invalid_assessment(error, "new_assessment")
         raise HTTPException(status_code=error.status_code, detail=str(error)) from error
     finally:
         for upload in student_work or []:

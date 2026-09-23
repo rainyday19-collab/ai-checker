@@ -72,7 +72,9 @@ export default function BatchGradeForm({ assignmentId, onBusyChange, onComplete,
         const student = queue[index];
         updateStudent(student.id, { name: student.name, status: 'grading', error: '', validationError: '' });
         try {
-          const result = await api.gradeSubmission(assignmentId, student.name, student.files);
+          const result = await api.gradeSubmission(assignmentId, student.name, student.files, {
+            source: 'batch', batchStudentIndex: index + 1,
+          });
           if (!mounted.current) break;
           // Release successful upload references; the saved submission retains metadata and result only.
           updateStudent(student.id, { status: 'completed', result, files: [], error: '' });
@@ -102,7 +104,9 @@ export default function BatchGradeForm({ assignmentId, onBusyChange, onComplete,
     onBusyChange(true);
     updateStudent(student.id, { status: 'grading', error: '', validationError: '' });
     try {
-      const result = await api.gradeSubmission(assignmentId, student.name.trim(), student.files);
+      const result = await api.gradeSubmission(assignmentId, student.name.trim(), student.files, {
+        source: 'batch-retry',
+      });
       if (!mounted.current) return;
       updateStudent(student.id, { name: student.name.trim(), status: 'completed', result, files: [], error: '' });
       onComplete();
@@ -139,7 +143,7 @@ export default function BatchGradeForm({ assignmentId, onBusyChange, onComplete,
             <StudentWorkUpload files={student.files} onFilesChange={(files) => updateStudent(student.id, { files, validationError: '' })} disabled={running}/>
           </>}
           {student.validationError && <p className="teacher-error" role="alert">{student.validationError}</p>}
-          {student.status === 'failed' && <div className="batch-result batch-failed-result"><p role="alert">{student.error || 'Grading failed. No result was saved.'}</p><button className="secondary-button" type="button" disabled={running} onClick={() => retry(student)}>Retry</button></div>}
+          {student.status === 'failed' && <div className="batch-result batch-failed-result"><p role="alert">Failed — {student.error || 'Grading failed. No result was saved.'}</p><button className="secondary-button" type="button" disabled={running} onClick={() => retry(student)}>Retry</button></div>}
           {student.status === 'completed' && student.result && <div className="batch-result"><div><strong>{student.result.total_score} / {student.result.max_score}</strong><span>{student.result.percentage}%</span></div><button className="secondary-button" type="button" disabled={running} onClick={() => onOpenResult(student.result.id)}>View Result</button></div>}
         </li>)}
       </ol>

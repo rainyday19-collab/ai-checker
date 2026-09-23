@@ -25,7 +25,7 @@ export default function SubmissionsView({ assignment, onBusyChange }) {
   const toast = useToast();
   const inFlight = useRef(false);
   const mounted = useRef(false);
-  const canGrade = Boolean(assignment.mark_scheme?.has_file || assignment.mark_scheme_text?.trim());
+  const canGrade = assignment.rubric?.status === 'ready';
   const gradedCount = items.filter((item) => item.status === 'graded' && item.assessment_id != null).length;
   const busy = grading || batchBusy || working != null || exporting;
 
@@ -67,7 +67,7 @@ export default function SubmissionsView({ assignment, onBusyChange }) {
     onBusyChange(true);
     setFormError('');
     try {
-      const data = await api.gradeSubmission(assignment.id, name, files);
+      const data = await api.gradeSubmission(assignment.id, name, files, { source: 'single' });
       // Browser Back may leave this page while the backend finishes grading.
       if (!mounted.current) return;
       navigate(`/submissions/${data.id}`);
@@ -124,7 +124,7 @@ export default function SubmissionsView({ assignment, onBusyChange }) {
     <div className="teacher-heading"><div><h2 id="submissions-title">Student submissions</h2><p className="teacher-meta">{items.length} saved submission{items.length === 1 ? '' : 's'}</p></div>
       {!formMode && <div className="submission-actions"><button className="secondary-button" type="button" disabled={busy || loading || gradedCount === 0} title={gradedCount === 0 ? 'Export is available after a submission has been graded.' : 'Download graded results as CSV'} onClick={exportCsv}>{exporting ? 'Exporting…' : 'Export CSV'}</button><button className="secondary-button" disabled={busy || !canGrade} onClick={showForm}>Grade one student</button><button className="primary-button" disabled={busy || !canGrade} onClick={showBatchForm}>Batch grade</button></div>}
     </div>
-    {!canGrade && <p className="teacher-meta">This assignment has no saved mark scheme. Create an assignment with criteria before grading.</p>}
+    {!canGrade && <p className="teacher-meta">Prepare a valid grading rubric before grading student work.</p>}
     {!loading && !error && gradedCount === 0 && <p className="teacher-meta export-hint">Export CSV becomes available after the first successfully graded Submission.</p>}
     <>
       {formMode === 'single' && <section className="card teacher-form"><h3>Grade Student Work</h3><p className="teacher-meta">Using the mark scheme saved with this assignment.</p>

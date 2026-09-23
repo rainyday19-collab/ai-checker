@@ -37,8 +37,15 @@ class MockAssessmentTests(unittest.TestCase):
                 percentage = payload["result"].pop("percentage")
                 result = AssessmentResult.model_validate(payload["result"])
                 self.assertEqual((result.total_score, result.max_score, percentage), (17, 20, 85))
-                self.assertEqual([question.score for question in result.questions], [4, 5, 3, 5])
+                self.assertEqual([question.score for question in result.questions], [17])
                 self.assertTrue(all(question.evidence for question in result.questions))
+                self.assertTrue(all(question.evidence_status == "found" for question in result.questions))
+                self.assertTrue(all(question.source_location for question in result.questions))
+                self.assertTrue(all(question.marking_points for question in result.questions))
+                self.assertTrue(all(
+                    question.score == sum(point.awarded_marks for point in question.marking_points)
+                    for question in result.questions
+                ))
                 ai_client.assert_not_called()
 
     def test_unknown_mode_is_blocked(self):

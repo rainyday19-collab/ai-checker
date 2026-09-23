@@ -10,11 +10,11 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
 import database
-from ai_grading import AIConfigurationError, AIGradingError
+from ai_grading import AIConfigurationError, AIGradingError, log_invalid_assessment
 from assessment_service import GradingModeError, run_assessment
 from document_processing import process_student_work_files
 from grading import AssessmentResult, SavedAssessment, prepare_grading_input
-from mark_scheme_storage import load_document
+from rubric_service import prepare_assignment_rubric
 
 
 class StudentInput(BaseModel):
@@ -133,9 +133,9 @@ async def grade_submission(
         if not name or len(name) > 150:
             raise HTTPException(422, "Student name is required and must be at most 150 characters.")
         name = StudentInput(student_name=name).student_name
+        rubric = await prepare_assignment_rubric(assignment_id)
         documents = await process_student_work_files(student_work)
-        scheme = await run_in_threadpool(load_document, assignment)
-        prepared = prepare_grading_input(documents, scheme, criteria or None)
+        prepared = prepare_grading_input(documents, rubric=rubric)
         assessment = await run_assessment(prepared)
         # Validate again before either database row is written.
         result = AssessmentResult.model_validate(assessment.result.model_dump(exclude={"percentage"}))
@@ -149,6 +149,7 @@ async def grade_submission(
     except (AIConfigurationError, GradingModeError) as error:
         raise HTTPException(503, str(error)) from error
     except AIGradingError as error:
+        log_invalid_assessment(error, "assignment")
         raise HTTPException(error.status_code, str(error)) from error
     except ValidationError as error:
         raise HTTPException(502, "The grader returned an invalid assessment. No result was saved.") from error

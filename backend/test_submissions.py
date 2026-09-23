@@ -12,7 +12,7 @@ from PIL import Image
 from pypdf import PdfWriter
 
 import database
-from ai_grading import AIGradingError
+from ai_grading import AIGradingError, build_model_input
 from assessment_service import mock_grade_assessment
 from grading import AssessmentResponse, AssessmentResult
 from main import app
@@ -66,7 +66,7 @@ class SubmissionTests(unittest.TestCase):
         self.assertEqual(saved["status"], "graded")
         self.assertEqual(saved["assessment_id"], saved["assessment"]["id"])
         self.assertEqual(saved["assessment"]["grading_mode"], "mock")
-        self.assertEqual(saved["total_score"], 17)
+        self.assertEqual(saved["total_score"], 3.4)
         self.assertTrue(saved["graded_at"])
         self.assertEqual(self.client.get(f'/api/submissions/{saved["id"]}').json(), saved)
         listed = self.client.get(f"/api/assignments/{self.assignment}/submissions").json()
@@ -87,10 +87,29 @@ class SubmissionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         grader.assert_awaited_once()
         prepared = grader.call_args.args[0]
-        self.assertEqual(prepared.criteria_text, self.criteria)
+        self.assertIsNone(prepared.criteria_text)
         self.assertIsNone(prepared.mark_scheme)
+        self.assertEqual(prepared.rubric.total_marks, 4)
         self.assertEqual(prepared.student_work.kind, "image")
         self.assertEqual(prepared.student_work.original_bytes, self.image)
+
+    def test_student_name_does_not_change_model_payload(self):
+        payloads = []
+
+        async def capture_payload(prepared):
+            payloads.append(build_model_input(prepared))
+            return AssessmentResponse(
+                grading_mode="mock", result=await mock_grade_assessment(prepared),
+            )
+
+        with patch("submissions_api.run_assessment", side_effect=capture_payload):
+            first = self.grade(name="Alice")
+            second = self.grade(name="A completely different student")
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(payloads[0], payloads[1])
+        self.assertNotIn("Alice", json.dumps(payloads))
+        self.assertNotIn("A completely different student", json.dumps(payloads))
 
     def test_missing_assignment_and_mark_scheme(self):
         self.assertEqual(self.grade(assignment=999).status_code, 404)
@@ -239,8 +258,11 @@ class SubmissionTests(unittest.TestCase):
     def test_openai_sdk_mock_transport_one_request_usage_and_failure(self):
         requests = []
         mode = {"fail": False}
-        fixture = {"total_score": 3, "max_score": 4, "summary": "Fixture summary", "questions": [
-            {"question": "1", "score": 3, "max_score": 4, "feedback": "Fixture", "evidence": None}]}
+        fixture = {"summary": "Fixture summary", "questions": [
+            {"question_id": "q1", "feedback": "Fixture", "marking_points": [{
+             "marking_point_id": "q1_p1", "awarded_marks": 3,
+             "rationale": "Most of the point is demonstrated.", "evidence_status": "found",
+             "evidence": "Visible fixture answer", "source_location": "Image 1"}]}]}
         def handler(request):
             requests.append(json.loads(request.content))
             if mode["fail"]:
@@ -252,6 +274,7 @@ class SubmissionTests(unittest.TestCase):
                     "content": [{"type": "output_text", "text": json.dumps(fixture), "annotations": []}]}]})
         def create_client(**configuration):
             self.assertEqual(configuration["max_retries"], 0)
+            self.assertEqual(configuration["timeout"], 120.0)
             return AsyncOpenAI(**configuration, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
         with patch.dict("os.environ", {"GRADING_MODE": "openai", "OPENAI_API_KEY": "test-key-not-real", "OPENAI_MODEL": "test-model"}), patch("ai_grading.AsyncOpenAI", side_effect=create_client):
             response = self.grade_files([
@@ -270,7 +293,8 @@ class SubmissionTests(unittest.TestCase):
             self.assertTrue(any("PAGE 1 OF 3 — first.png" in label for label in page_labels))
             self.assertTrue(any("PAGE 2 OF 3 — second.png" in label for label in page_labels))
             self.assertTrue(any("PAGE 3 OF 3 — third.png" in label for label in page_labels))
-            self.assertTrue(any(self.criteria in part.get("text", "") for part in parts))
+            self.assertFalse(any(self.criteria in part.get("text", "") for part in parts))
+            self.assertTrue(any("CANONICAL RUBRIC" in part.get("text", "") for part in parts))
             mode["fail"] = True
             failed = self.grade(name="Bob")
             self.assertEqual(failed.status_code, 402)

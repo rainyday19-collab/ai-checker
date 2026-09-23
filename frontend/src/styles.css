@@ -315,6 +315,18 @@ nav[aria-label="Main navigation"] { min-width: 0; }
 .file-summary { display: flex; flex-direction: column; gap: 5px; padding: 14px 16px; background: #f8f9fc; border: 1px solid var(--border); border-radius: 8px; }
 .file-summary strong { color: var(--text); overflow-wrap: anywhere; }
 .file-summary span { font-size: 10px; color: var(--muted); }
+.rubric-failure { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.rubric-failure .teacher-error { flex: 1; margin: 0; }
+.rubric-panel { margin-top: 14px; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: #fafbfe; }
+.rubric-panel-heading, .rubric-question > div { display: flex; justify-content: space-between; gap: 12px; }
+.rubric-panel-heading { padding: 13px 15px; border-bottom: 1px solid var(--border); background: #f3f1fc; }
+.rubric-panel-heading span, .rubric-question > div span { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.rubric-question { padding: 14px 15px; }
+.rubric-question + .rubric-question { border-top: 1px solid var(--border); }
+.rubric-question ul { margin: 10px 0 0; padding-left: 20px; }
+.rubric-question li { margin-top: 8px; }
+.rubric-question li span, .rubric-question li small { display: block; }
+.rubric-question li small { margin-top: 2px; color: var(--muted); font-size: 9px; }
 .result-context { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-bottom: 24px; }
 .result-context > div { display: flex; flex-direction: column; gap: 7px; min-width: 0; padding: 18px 20px; }
 .result-context > div + div { border-left: 1px solid var(--border); }
@@ -325,6 +337,17 @@ nav[aria-label="Main navigation"] { min-width: 0; }
 .result-feedback, .result-evidence { padding: 11px 12px; border-radius: 7px; }
 .result-feedback { background: #f8f9fc; }
 .result-evidence { background: #f3f1fc; color: #565176; }
+.marking-points { margin-top: 10px; border: 1px solid #e0def1; border-radius: 8px; background: #faf9ff; }
+.marking-points summary { padding: 11px 13px; color: #5148a3; font-size: 11px; font-weight: 650; cursor: pointer; }
+.marking-point-list { display: grid; gap: 1px; border-top: 1px solid #e0def1; background: #e8e6f2; }
+.marking-point { padding: 12px 14px; background: #fff; }
+.marking-point-heading { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: start; gap: 7px; font-size: 11px; }
+.marking-point-heading > span:last-child { color: var(--text); font-weight: 700; }
+.marking-point-symbol { color: var(--success); font-weight: 750; }
+.marking-point-not_met .marking-point-symbol { color: var(--danger); }
+.marking-point-partially_met .marking-point-symbol, .marking-point-unclear .marking-point-symbol { color: #9b6b12; }
+.marking-point p { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; margin: 7px 0 0; color: #565176; font-size: 10px; line-height: 1.55; }
+.marking-point p span { color: var(--muted); font-weight: 650; }
 .ai-usage { padding: 0 30px 20px; margin-top: 4px; }
 .ai-usage summary { color: #5148a3; font-size: 11px; font-weight: 600; }
 .ai-usage dl { margin: 14px 0 0; padding: 14px 16px; border-radius: 8px; background: #f8f9fc; border: 1px solid var(--border); }

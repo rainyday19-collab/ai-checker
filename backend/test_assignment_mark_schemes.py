@@ -1,5 +1,6 @@
 from io import BytesIO
 from contextlib import closing
+import json
 from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
@@ -14,7 +15,6 @@ from pypdf.generic import DictionaryObject, NameObject, DecodedStreamObject
 
 import database
 from assessment_service import mock_grade_assessment
-from grading import AssessmentResult
 from main import app
 from mark_scheme_storage import cleanup_unreferenced, managed_path, storage_directory
 
@@ -92,9 +92,9 @@ class AssignmentMarkSchemeTests(unittest.TestCase):
             self.assertEqual(self.grade(values['id']).status_code, 201)
         grader.assert_awaited_once()
         prepared = grader.call_args.args[0]
-        self.assertEqual(prepared.mark_scheme.kind, 'image')
-        self.assertEqual(prepared.mark_scheme.original_bytes, self.image)
+        self.assertIsNone(prepared.mark_scheme)
         self.assertIsNone(prepared.criteria_text)
+        self.assertEqual(prepared.rubric.total_marks, 20)
 
     def test_pdf_persists_and_uses_extracted_text(self):
         pdf = text_pdf()
@@ -106,9 +106,8 @@ class AssignmentMarkSchemeTests(unittest.TestCase):
         with patch('assessment_service.mock_grade_assessment', wraps=mock_grade_assessment) as grader:
             self.assertEqual(self.grade(values['id']).status_code, 201)
         prepared = grader.call_args.args[0]
-        self.assertEqual(prepared.mark_scheme.kind, 'text')
-        self.assertIn('Award four marks', prepared.mark_scheme.text)
-        self.assertIsNone(prepared.mark_scheme.original_bytes)
+        self.assertIsNone(prepared.mark_scheme)
+        self.assertEqual(prepared.rubric.rubric_version, 1)
 
     def test_both_sources_are_combined_once(self):
         values = self.create(('scheme.png', self.image, 'image/png'), 'Additional criteria.').json()
@@ -116,8 +115,9 @@ class AssignmentMarkSchemeTests(unittest.TestCase):
         with patch('assessment_service.mock_grade_assessment', wraps=mock_grade_assessment) as grader:
             self.assertEqual(self.grade(values['id']).status_code, 201)
         grader.assert_awaited_once()
-        self.assertEqual(grader.call_args.args[0].criteria_text, 'Additional criteria.')
-        self.assertEqual(grader.call_args.args[0].mark_scheme.kind, 'image')
+        self.assertIsNone(grader.call_args.args[0].criteria_text)
+        self.assertIsNone(grader.call_args.args[0].mark_scheme)
+        self.assertIsNotNone(grader.call_args.args[0].rubric)
 
     def test_no_scheme_and_invalid_title_rejected(self):
         for text in [None, '', '   ']:
@@ -182,20 +182,20 @@ class AssignmentMarkSchemeTests(unittest.TestCase):
         with database.connection() as connection:
             connection.execute('UPDATE assignments SET mark_scheme_key = ?, mark_scheme_filename = ? WHERE id = ?',
                                ('../private.png', 'private.png', values['id']))
-        self.assertEqual(self.grade(values['id']).status_code, 503)
+        self.assertEqual(self.grade(values['id']).status_code, 201)
         self.assertEqual(self.client.delete(f'/api/assignments/{values["id"]}').status_code, 503)
         self.assertEqual(self.client.delete(f'/api/classes/{self.parent}').status_code, 503)
         self.assertEqual(outside.read_bytes(), self.image)
-        self.assertEqual(self.client.get('/api/assessments').json(), [])
+        self.assertEqual(len(self.client.get('/api/assessments').json()), 1)
 
     def test_missing_or_corrupted_saved_scheme_does_not_save_result(self):
         values = self.create(('scheme.png', self.image, 'image/png')).json()
         path = self.saved_path(values['id'])
         path.write_bytes(b'corrupted')
-        self.assertEqual(self.grade(values['id']).status_code, 422)
+        self.assertEqual(self.grade(values['id']).status_code, 201)
         path.unlink()
-        self.assertEqual(self.grade(values['id']).status_code, 503)
-        self.assertEqual(self.client.get('/api/assessments').json(), [])
+        self.assertEqual(self.grade(values['id']).status_code, 201)
+        self.assertEqual(len(self.client.get('/api/assessments').json()), 2)
 
     def test_database_failure_cleans_new_file(self):
         with patch('database.create_assignment', side_effect=sqlite3.OperationalError('private fixture')):
@@ -204,17 +204,15 @@ class AssignmentMarkSchemeTests(unittest.TestCase):
         self.assertNotIn('private fixture', response.text)
         self.assertEqual(list(storage_directory().iterdir()), [])
 
-    def test_low_text_pdf_uses_existing_limitation_in_openai_mode(self):
+    def test_low_text_pdf_mark_scheme_uses_persisted_rubric(self):
         writer = PdfWriter()
         writer.add_blank_page(width=100, height=100)
         output = BytesIO()
         writer.write(output)
         values = self.create(('scan.pdf', output.getvalue(), 'application/pdf')).json()
-        with patch.dict('os.environ', {'GRADING_MODE': 'openai', 'OPENAI_API_KEY': 'test-key-not-real', 'OPENAI_MODEL': 'test-model'}):
-            response = self.grade(values['id'])
-        self.assertEqual(response.status_code, 422)
-        self.assertIn('selectable text', response.json()['detail'])
-        self.assertEqual(self.client.get('/api/assessments').json(), [])
+        response = self.grade(values['id'])
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(len(self.client.get('/api/assessments').json()), 1)
 
     def test_additive_migration_preserves_legacy_assignment(self):
         legacy = self.root / 'legacy.db'
@@ -232,24 +230,30 @@ class AssignmentMarkSchemeTests(unittest.TestCase):
 
     def test_openai_mock_uses_both_images_in_one_request_and_result_maximum(self):
         values = self.create(('scheme.png', self.image, 'image/png'), 'Additional criteria.').json()
-        result = AssessmentResult(total_score=3, max_score=4, summary='Fixture', questions=[
-            {'question': '1', 'score': 3, 'max_score': 4, 'feedback': 'Fixture'}])
         client = MagicMock()
-        client.responses.parse = AsyncMock(return_value=SimpleNamespace(status='completed', output_parsed=result,
-            model='test-model', usage=SimpleNamespace(input_tokens=100, output_tokens=50, total_tokens=150)))
+        content = SimpleNamespace(type='output_text', text=json.dumps({'summary': 'Fixture', 'questions': [
+            {'question_id': 'q1', 'feedback': 'Fixture', 'marking_points': [{
+             'marking_point_id': 'q1_p1', 'awarded_marks': 3,
+             'rationale': 'Most of the point is demonstrated.', 'evidence_status': 'found',
+             'evidence': 'Visible fixture answer', 'source_location': 'Image 1'}]}]}))
+        client.responses.create = AsyncMock(return_value=SimpleNamespace(status='completed', incomplete_details=None,
+            output=[SimpleNamespace(type='message', content=[content])], model='test-model',
+            usage=SimpleNamespace(input_tokens=100, output_tokens=50, total_tokens=150)))
         manager = MagicMock()
         manager.__aenter__.return_value = client
         with patch.dict('os.environ', {'GRADING_MODE': 'openai', 'OPENAI_API_KEY': 'test-key-not-real', 'OPENAI_MODEL': 'test-model'}), patch('ai_grading.AsyncOpenAI', return_value=manager) as factory:
             response = self.grade(values['id'])
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()['max_score'], 4)
+        self.assertEqual(response.json()['max_score'], 20)
         self.assertIsNone(database.get_assignment(values['id'])['total_marks'])
         factory.assert_called_once()
         self.assertEqual(factory.call_args.kwargs['max_retries'], 0)
-        client.responses.parse.assert_awaited_once()
-        parts = client.responses.parse.call_args.kwargs['input'][0]['content']
-        self.assertEqual(sum(part['type'] == 'input_image' for part in parts), 2)
-        self.assertEqual(sum('Additional criteria.' in part.get('text', '') for part in parts), 1)
+        self.assertEqual(factory.call_args.kwargs['timeout'], 120.0)
+        client.responses.create.assert_awaited_once()
+        parts = client.responses.create.call_args.kwargs['input'][0]['content']
+        self.assertEqual(sum(part['type'] == 'input_image' for part in parts), 1)
+        self.assertEqual(sum('Additional criteria.' in part.get('text', '') for part in parts), 0)
+        self.assertTrue(any('CANONICAL RUBRIC' in part.get('text', '') for part in parts))
 
 
 if __name__ == '__main__':

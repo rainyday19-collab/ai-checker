@@ -5,6 +5,7 @@ from pathlib import Path
 import sqlite3
 
 from grading import AIUsage, AssessmentResponse, AssessmentResult, SavedAssessment
+from rubric import CanonicalRubric
 
 DB_PATH = Path(__file__).parent / "data" / "ai_checker.db"
 
@@ -61,6 +62,14 @@ def initialize_database():
         for column in ("mark_scheme_key", "mark_scheme_filename", "mark_scheme_type"):
             if column not in columns:
                 database.execute(f"ALTER TABLE assignments ADD COLUMN {column} TEXT")
+        for column, definition in (
+            ("rubric_json", "TEXT"),
+            ("rubric_status", "TEXT NOT NULL DEFAULT 'unavailable'"),
+            ("rubric_error", "TEXT"),
+            ("rubric_mode", "TEXT"),
+        ):
+            if column not in columns:
+                database.execute(f"ALTER TABLE assignments ADD COLUMN {column} {definition}")
         database.execute("CREATE UNIQUE INDEX IF NOT EXISTS assignments_scheme_key ON assignments(mark_scheme_key)")
         database.execute("""
             CREATE TABLE IF NOT EXISTS submissions (
@@ -220,6 +229,53 @@ def create_assignment(class_id: int, values: dict) -> dict | None:
             return None
         row = database.execute("SELECT * FROM assignments WHERE id = ?", (cursor.lastrowid,)).fetchone()
         return dict(row)
+
+
+def get_assignment_rubric(assignment_id: int) -> CanonicalRubric | None:
+    with connection() as database:
+        row = database.execute(
+            "SELECT rubric_json FROM assignments WHERE id = ? AND rubric_status = 'ready'", (assignment_id,),
+        ).fetchone()
+    if row is None or not row["rubric_json"]:
+        return None
+    return CanonicalRubric.model_validate_json(row["rubric_json"])
+
+
+def claim_rubric_generation(assignment_id: int, *, retry_failed: bool = False) -> str:
+    allowed = ("unavailable", "failed") if retry_failed else ("unavailable",)
+    placeholders = ",".join("?" for _ in allowed)
+    with connection() as database:
+        row = database.execute("SELECT rubric_status FROM assignments WHERE id = ?", (assignment_id,)).fetchone()
+        if row is None:
+            return "missing"
+        if row["rubric_status"] == "ready":
+            return "ready"
+        cursor = database.execute(
+            f"UPDATE assignments SET rubric_status = 'preparing', rubric_error = NULL "
+            f"WHERE id = ? AND rubric_status IN ({placeholders})",
+            (assignment_id, *allowed),
+        )
+        return "claimed" if cursor.rowcount else row["rubric_status"]
+
+
+def save_assignment_rubric(assignment_id: int, rubric: CanonicalRubric, mode: str) -> bool:
+    with connection() as database:
+        cursor = database.execute(
+            """UPDATE assignments SET rubric_json = ?, rubric_status = 'ready', rubric_error = NULL, rubric_mode = ?
+               WHERE id = ? AND rubric_status = 'preparing'""",
+            (rubric.model_dump_json(), mode, assignment_id),
+        )
+        return cursor.rowcount > 0
+
+
+def fail_assignment_rubric(assignment_id: int, message: str) -> bool:
+    with connection() as database:
+        cursor = database.execute(
+            """UPDATE assignments SET rubric_json = NULL, rubric_status = 'failed', rubric_error = ?, rubric_mode = NULL
+               WHERE id = ? AND rubric_status = 'preparing'""",
+            (message, assignment_id),
+        )
+        return cursor.rowcount > 0
 
 
 def delete_assignment(assignment_id: int) -> bool:

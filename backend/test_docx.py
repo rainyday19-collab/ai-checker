@@ -1,13 +1,18 @@
 from io import BytesIO
+from dataclasses import replace
+import json
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 from zipfile import ZIP_DEFLATED, ZipFile
 
+import httpx
 from docx import Document
 from docx.shared import Inches
 from fastapi.testclient import TestClient
+from openai import AsyncOpenAI
 from PIL import Image
 from pypdf import PdfWriter
 
@@ -18,6 +23,7 @@ from document_processing import MAX_FILE_BYTES, SUPPORTED_TYPES, extract_content
 from grading import prepare_grading_input
 from main import app
 from mark_scheme_storage import managed_path
+from rubric import demo_rubric
 
 
 DOCX_MIME = SUPPORTED_TYPES[".docx"]
@@ -81,7 +87,7 @@ class DocxProcessingTests(unittest.TestCase):
         document.save(output)
         processed = extract_content(output.getvalue(), "answers.docx", DOCX_MIME, "Student work")
         self.assertEqual(processed.type, "docx")
-        self.assertLess(processed.text.index("Question 1 answer"), processed.text.index("[Table]"))
+        self.assertLess(processed.text.index("Question 1 answer"), processed.text.index("[Table 1]"))
         self.assertLess(processed.text.index("Row 2: Method | Correct"), processed.text.index("Answer after table"))
         self.assertIn("[Paragraph]", processed.text)
 
@@ -91,6 +97,7 @@ class DocxProcessingTests(unittest.TestCase):
         processed = extract_content(data, "illustrated.docx", DOCX_MIME, "Student work")
         self.assertEqual([image.content_type for image in processed.embedded_images], ["image/png", "image/jpeg"])
         prepared = prepare_grading_input(processed, criteria_text="Award four marks.")
+        prepared = replace(prepared, rubric=demo_rubric(4))
         self.assertEqual(prepared.student_work.kind, "docx")
         parts = build_model_input(prepared)[0]["content"]
         self.assertEqual(sum(part["type"] == "input_image" for part in parts), 2)
@@ -181,9 +188,8 @@ class DocxEndpointTests(unittest.TestCase):
         with patch("assessment_service.mock_grade_assessment", wraps=mock_grade_assessment) as grader:
             self.assertEqual(self.grade([("page.png", self.png, "image/png")], values["id"]).status_code, 201)
         prepared = grader.call_args.args[0]
-        self.assertEqual(prepared.mark_scheme.kind, "docx")
-        self.assertIn("Row 2: Method | 4", prepared.mark_scheme.text)
-        self.assertEqual(len(prepared.mark_scheme.embedded_images), 1)
+        self.assertIsNone(prepared.mark_scheme)
+        self.assertIsNotNone(prepared.rubric)
 
     def test_invalid_docx_combinations_and_legacy_doc(self):
         cases = [
@@ -211,6 +217,76 @@ class DocxEndpointTests(unittest.TestCase):
                 response = self.grade([upload])
                 self.assertEqual(response.status_code, expected)
                 self.assertNotIn(str(self.root), response.text)
+
+
+class DocxFlowEquivalenceTests(unittest.TestCase):
+    def test_three_images_and_docx_build_identical_openai_input_in_both_flows(self):
+        scheme = docx_bytes(
+            paragraphs=("Award marks only for supported answers.",),
+            table=(("Criterion", "Marks"), ("Method", "4")),
+            images=(image_bytes("PNG", "gold"),),
+        )
+        pages = [(f"page-{index}.jpg", image_bytes("JPEG", color), "image/jpeg")
+                 for index, color in enumerate(("red", "green", "blue"), start=1)]
+        rubric_requests = []
+        grading_requests = []
+        fixture = {"summary": "Fixture summary", "questions": [{
+            "question_id": "q1", "feedback": "Fixture feedback", "marking_points": [{
+                "marking_point_id": "q1_p1", "awarded_marks": 3,
+                "rationale": "Most of the point is demonstrated.", "evidence_status": "found",
+                "evidence": "Visible fixture answer", "source_location": "Image 1",
+            }],
+        }]}
+        rubric_fixture = {"title": "Fixture", "total_marks": 4, "questions": [{
+            "question_text": "Question 1", "max_marks": 4, "marking_points": [{
+                "criterion": "Fixture point", "max_marks": 4,
+                "criterion_type": "semantic", "guidance": None,
+            }],
+        }]}
+
+        def handler(request):
+            body = json.loads(request.content)
+            is_rubric = body["text"]["format"]["name"] == "canonical_rubric_draft"
+            (rubric_requests if is_rubric else grading_requests).append(body)
+            return httpx.Response(200, json={
+                "id": "resp_fixture", "object": "response", "created_at": 0,
+                "status": "completed", "model": "test-model",
+                "output": [{"id": "msg_fixture", "type": "message", "role": "assistant",
+                            "status": "completed", "content": [{"type": "output_text",
+                            "text": json.dumps(rubric_fixture if is_rubric else fixture), "annotations": []}]}],
+            })
+
+        def create_client(**configuration):
+            return AsyncOpenAI(**configuration,
+                http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+
+        with TemporaryDirectory() as temporary, \
+                patch("database.DB_PATH", Path(temporary) / "test.db"), \
+                patch.dict(os.environ, {"GRADING_MODE": "openai", "OPENAI_API_KEY": "test-key-not-real",
+                                        "OPENAI_MODEL": "test-model"}, clear=True), \
+                patch("assessment_service.load_dotenv"), patch("ai_grading.load_dotenv"), \
+                patch("ai_grading.AsyncOpenAI", side_effect=create_client), TestClient(app) as client:
+            parent = client.post("/api/classes", json={"name": "Test", "subject": "CS"}).json()["id"]
+            assignment = client.post(f"/api/classes/{parent}/assignments", data={"title": "Word scheme"},
+                files={"mark_scheme_file": ("scheme.docx", scheme, DOCX_MIME)}).json()["id"]
+
+            standalone_files = [("student_work", page) for page in pages]
+            standalone_files.append(("mark_scheme", ("scheme.docx", scheme, DOCX_MIME)))
+            standalone = client.post("/api/assess", files=standalone_files)
+            assignment_result = client.post(f"/api/assignments/{assignment}/submissions/grade",
+                data={"student_name": "Student"}, files=[("student_work", page) for page in pages])
+
+        self.assertEqual(standalone.status_code, 200)
+        self.assertEqual(assignment_result.status_code, 201)
+        self.assertEqual(len(rubric_requests), 2)
+        self.assertEqual(len(grading_requests), 2)
+        self.assertEqual(rubric_requests[0]["input"], rubric_requests[1]["input"])
+        self.assertEqual(grading_requests[0]["input"], grading_requests[1]["input"])
+        parts = grading_requests[0]["input"][0]["content"]
+        self.assertEqual(sum(part["type"] == "input_image" for part in parts), 3)
+        self.assertTrue(any("CANONICAL RUBRIC" in part.get("text", "") for part in parts))
+        rubric_parts = rubric_requests[0]["input"][0]["content"]
+        self.assertTrue(any("Row 2: Method | 4" in part.get("text", "") for part in rubric_parts))
 
 
 if __name__ == "__main__":
